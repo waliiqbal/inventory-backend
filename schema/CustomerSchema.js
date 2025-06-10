@@ -30,13 +30,13 @@ const CustomerSchema = new mongoose.Schema({
         type: Number,
         required: true 
     },
-    rate: {    // Added the rate field
-        type: Number,  // Changed to Number
-        required: true,   // You can change this to 'false' if it's optional
+    rate: {    
+        type: Number,  
+        required: true,   
     },
-    amount: {  // Added the amount field
-        type: Number,  // Changed to Number
-        required: true,   // You can change this to 'false' if it's optional
+    amount: {  
+        type: Number,  
+        required: true,  
     },
     billNo: {
         type: String,
@@ -49,8 +49,7 @@ const CustomerSchema = new mongoose.Schema({
     },
     product: {
         type: String,
-        enum: ['poleythene', 'hydensity'], // Define allowed values
-        required: true // Mark as required if needed
+        required: true 
       },
       userId: {
         type: String,
@@ -63,6 +62,11 @@ const CustomerSchema = new mongoose.Schema({
       },
 
       phoneNumber: {
+        type: String,
+        required: false 
+      },
+
+      ratio: {
         type: String,
         required: false 
       },

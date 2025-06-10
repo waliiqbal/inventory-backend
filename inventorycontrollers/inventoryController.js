@@ -15,6 +15,7 @@ const { CategoryCustomerSchema } = require('../schema/CategorycustomerSchema');
 const { billSchema } = require('../schema/billSchema');
 const { customerWeightSchema } = require('../schema/customerWeightSchema');
 const { matchesGlob } = require('path/posix');
+const { console } = require('inspector');
 const Customerdata = mongoose.model("Customer", CustomerSchema); 
 const billdata = mongoose.model("bill", billSchema);
 const CustomerWeightdata = mongoose.model("customerWeight", customerWeightSchema); 
@@ -27,35 +28,35 @@ const CategoryCustomerdata = mongoose.model("CategoryCustomer", CategoryCustomer
 const createUser = async (req, res) => {
   console.log(req.body);
   try {
-    // Get user data from request body
+  
     const { username, email, password, userRole } = req.body;
 
-    // Check if email already exists
+  
     const existingUser = await userData.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: 'Email already exists' });
     }
 
-    // Hash the password before saving
-    const saltRounds = 10; // Number of salt rounds for hashing
+  
+    const saltRounds = 10; 
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    // Create a new user with the hashed password
+   
     const newUser = new userData({
       username,
       email,
-      password: hashedPassword, // Store hashed password
+      password: hashedPassword, 
       userRole
     });
 
-    // Save the user to the database
+
     await newUser.save();
 
-    // Send a success response
+  
     res.status(201).json({ message: 'User created successfully', user: newUser });
   } catch (error) {
     console.log(error);
-    // Handle any errors
+
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -65,31 +66,31 @@ const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Find user by email
+   
     const user = await userData.findOne({ email });
     if (!user) {
       return res.status(400).json({ error: 'User not found' });
     }
 
-    // Verify password
+   
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(400).json({ error: 'Invalid password' });
     }
 
-    // **Payload**: Information to store in the token
+ 
     const payload = {
       userId: user._id,
       email: user.email,
-      userRole: user.userRole, // Example: 'admin' or 'user'
+      userRole: user.userRole,
     };
 
-    // Generate JWT token
+   n
     const token = jwt.sign(payload, process.env.JWT_SECRET_KEY, {
-      expiresIn: '1h', // Token validity
+      expiresIn: '1h', 
     });
 
-    // Respond with token
+  
     res.status(200).json(
       
       {
@@ -173,35 +174,35 @@ const getCustomer = async (req, res) => {
   try {
     const { month, product, search, userId, userType, page = 1, limit = 10 } = req.query;
 
-    // Validate required parameters
+    
     if (!month || !product) {
       return res.status(400).json({ message: "Month and product are required query parameters." });
     }
 
-    // Parse and validate month format
+  
     const [year, monthValue] = month.split("-");
     if (!year || !monthValue || isNaN(year) || isNaN(monthValue) || monthValue > 12 || monthValue < 1) {
       return res.status(400).json({ message: "Invalid month format. Use YYYY-MM format." });
     }
 
-    // Create start and end dates for the current month
+   
     const startDate = new Date(`${year}-${monthValue}-01`);
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1);
 
-    // Calculate the previous month
+  
     const previousMonthDate = new Date(startDate);
     previousMonthDate.setMonth(previousMonthDate.getMonth() - 1);
     const previousYear = previousMonthDate.getFullYear();
     const previousMonth = previousMonthDate.getMonth() + 1;
     console.log("pre",previousMonthDate);
-    // Prepare the query object
+ 
     const query = {
       product,
       date: { $gte: startDate, $lt: endDate },
     };
 
-    // Apply userType and search filters
+ 
     query.userType = userType || "walkingCustomer";
     if (search) {
       query.clientName = { $regex: search, $options: "i" };
@@ -210,207 +211,44 @@ const getCustomer = async (req, res) => {
       query.userId = userId;
     }
 
-    // Pagination setup
+  
     const pageNumber = parseInt(page, 10);
     const pageSize = parseInt(limit, 10);
     const skip = (pageNumber - 1) * pageSize;
 
-    // Fetch paginated customer data
-    const customers = await Customerdata.find(query).sort({ _id: -1 }).skip(skip).limit(pageSize);
+  
+    const customers = await Customerdata.find(query).skip(skip).limit(pageSize);
 
-    // Fetch total document count for pagination meta-data
+   a
     const totalDocs = await Customerdata.countDocuments(query);
 
-    // Fetch the data for the previous month from CustomerWeightdata
-    if (userId && userType === "specificCustomer") {
-      // Fetch weights for the specific customer
-      const weights = await calculateCustomerWeights(month, product, userId);
-      return res.status(200).json({
-        message: "Customer and weights fetched successfully.",
-        data: {
-          data: customers, // Paginated customer data
-          weight: weights, // Calculated weights
-          page: {
-            page: pageNumber, // Current page
-            limit: pageSize, // Items per page
-            totalDocs: totalDocs, // Total number of documents
-          },
-        },
-      });
-    } else {
-      // Fetch opening and closing weights for general customer
-      const lastMonthDataCustomer = await CustomerWeightdata.findOne({
-        product,
-        closingMonth: { $gte: previousMonthDate, $lt: startDate }
-      });
-
-      const openingWeightMixing = lastMonthDataCustomer ? lastMonthDataCustomer.remainingWeightMixing : 0;
-      const openingWeightPure = lastMonthDataCustomer ? lastMonthDataCustomer.remainingWeightPure : 0;
-
-      const closingWeightMixing = lastMonthDataCustomer ? lastMonthDataCustomer.totalCustomerWeightMixing : 0;
-      const closingWeightPure = lastMonthDataCustomer ? lastMonthDataCustomer.totalCustomerWeightPure : 0;
-        
-      const totalCustomer = await Customerdata.aggregate([
-        { $match: { product,  userType: "walkingCustomer", date: { $gte: startDate, $lt: endDate } } },
-        {
-          $group: {
-            _id: null,
-            totalCustomerMixing: { $sum: "$weightMixing" },
-            totalCustomerPure: { $sum: "$weightPure" },
-          },
-        },
-      ]);
-
-      const totalCustomerMixing = totalCustomer.length > 0 ? totalCustomer[0].totalCustomerMixing : 0;
-      const totalCustomerPure = totalCustomer.length > 0 ? totalCustomer[0].totalCustomerPure : 0;
+      const weights = await getMonthlyPurchaseAndSale(month, userType, product, userId);
 
       return res.status(200).json({
         message: "Customer and weights fetched successfully.",
         data: {
-          data: customers, // Paginated customer data
-          weight: {
-            openingWeight: {
-              weightMixing: openingWeightMixing,
-              weightPure: openingWeightPure,
-            },
-            closingWeight: {
-              weightMixing: closingWeightMixing,
-              weightPure: closingWeightPure,
-            },
-
-            totalWeight: {
-              totalMixing: totalCustomerMixing,
-              totalPure: totalCustomerPure,
-            },
-          },
+          data: customers, 
+          weight: weights, 
           page: {
-            page: pageNumber, // Current page
-            limit: pageSize, // Items per page
-            totalDocs: totalDocs, // Total number of documents
+            page: pageNumber, 
+            limit: pageSize, 
+            totalDocs: totalDocs, 
           },
         },
       });
-    }
-  } catch (error) {
+    
+    }catch (error) {
     console.error("Error in getCustomer API:", error);
     res.status(500).json({ message: "Internal server error.", error: error.message });
   }
 };
 
 
-const calculateCustomerWeights = async (month, product, userId) => {
-  try {
-    const [year, monthValue] = month.split("-");
-    const startDate = new Date(`${year}-${monthValue}-01`);
-    const endDate = new Date(startDate);
-    endDate.setMonth(endDate.getMonth() + 1);
-
-    const previousMonthDate = new Date(startDate);
-    previousMonthDate.setMonth(previousMonthDate.getMonth() - 1); // Set to previous month
-
-    const previousMonthStart = new Date(previousMonthDate.getFullYear(), previousMonthDate.getMonth(), 1);
-    const previousMonthEnd = new Date(previousMonthDate.getFullYear(), previousMonthDate.getMonth() + 1, 1);
-
-    console.log("Previous Month Start:", previousMonthStart); // Debug log
-    console.log("Previous Month End:", previousMonthEnd);     // Debug log
-
-    // Update to include userId in the aggregation queries
-    const customerdata = await Customerdata.aggregate([
-      { 
-        $match: { 
-          product, 
-          userId, // Add userId filter
-          userType: "specificCustomer",
-          date: { $gte: startDate, $lt: endDate } 
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalWeightMixing: { $sum: "$weightMixing" },
-          totalWeightPure: { $sum: "$weightPure" },
-        },
-      },
-    ]);
-
-    const closingWeightMixing = customerdata[0]?.totalWeightMixing || 0;
-    const closingWeightPure = customerdata[0]?.totalWeightPure || 0;
-
-    // Material data for the previous month, filtered by userId
-    const materialDataPreviousMonth = await materialdata.aggregate([
-      { 
-        $match: { 
-          product, 
-          userId, // Add userId filter
-          userType: "specificCustomer",
-          date: { $gte: previousMonthStart, $lt: previousMonthEnd } 
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalWeightMixing: { $sum: "$weightMixing" },
-          totalWeightPure: { $sum: "$weightPure" },
-        },
-      },
-    ]);
-
-    console.log("Material Data (Previous Month):", materialDataPreviousMonth);
-
-    // Fetch customer data for the previous month, filtered by userId
-    const pastCustomerDataPreviousMonth = await Customerdata.aggregate([
-      { 
-        $match: { 
-          product, 
-          userId, // Add userId filter
-          userType: "specificCustomer",
-          date: { $gte: previousMonthStart, $lt: previousMonthEnd } 
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalWeightMixing: { $sum: "$weightMixing" },
-          totalWeightPure: { $sum: "$weightPure" },
-        },
-      },
-    ]);
-
-    console.log("Past Customer Data (Previous Month):", pastCustomerDataPreviousMonth);
-
-    const openingWeightMixing =
-      (materialDataPreviousMonth[0]?.totalWeightMixing || 0) - (pastCustomerDataPreviousMonth[0]?.totalWeightMixing || 0);
-
-    const openingWeightPure =
-      (materialDataPreviousMonth[0]?.totalWeightPure || 0) - (pastCustomerDataPreviousMonth[0]?.totalWeightPure || 0);
-
-    console.log("Opening Weight Mixing:", openingWeightMixing);
-    console.log("Opening Weight Pure:", openingWeightPure);
-
-    return {
-      openingWeight: {
-        weightMixing: openingWeightMixing,
-        weightPure: openingWeightPure,
-      },
-      closingWeight: {
-        weightMixing: closingWeightMixing,
-        weightPure: closingWeightPure,
-      },
-    };
-  } catch (error) {
-    console.error("Error in calculatecustomerlWeights function:", error);
-    throw new Error("Unable to calculate customer weights.");
-  }
-};
- 
-
-
-    
-  
-
   const getMaterial = async (req, res) => {
   try {
+    console.log("Database connected...");
     const { month, product, search, userId, userType, page = 1, limit = 10 } = req.query;
+    console.error("Logging directly to terminal:", month, product, search, userId, userType);
 
     if (!month || !product) {
       return res.status(400).json({ message: "Month and product are required query parameters." });
@@ -444,16 +282,16 @@ const calculateCustomerWeights = async (month, product, userId) => {
     const pageSize = parseInt(limit, 10);
     const skip = (pageNumber - 1) * pageSize;
 
-    const materials = await materialdata.find(query).sort({ _id: -1 }).skip(skip).limit(pageSize);
+    const materials = await materialdata.find(query).skip(skip).limit(pageSize);
     const totalDocs = await materialdata.countDocuments(query);
 
-    if (userId && userType === "specificCustomer") {
-      const weights = await calculateMaterialWeights(month, product, userId);
+      const weight = await getMonthlyPurchaseAndSale(month, userType, product, userId);
+
       return res.status(200).json({
         message: "Materials and weights fetched successfully.",
         data: {
           data: materials,
-          weight: weights ,
+          weight: weight,
           page: {
             page: pageNumber,
             limit: pageSize,
@@ -461,175 +299,98 @@ const calculateCustomerWeights = async (month, product, userId) => {
           },
         },
       });
-    } else {
-      console.log("date kia bni",startDate, endDate);
-      const lastMonthDataCustomer = await CustomerWeightdata.findOne({
-        product,
-        closingMonth: { $gte: previousMonthDate, $lt: startDate }
-      });
-
-      const openingWeightMixing = lastMonthDataCustomer ? lastMonthDataCustomer.remainingWeightMixing : 0;
-      const openingWeightPure = lastMonthDataCustomer ? lastMonthDataCustomer.remainingWeightPure : 0;
-      const closingWeightMixing = lastMonthDataCustomer ? lastMonthDataCustomer.totalMaterialWeightMixing : 0;
-      const closingWeightPure = lastMonthDataCustomer ? lastMonthDataCustomer.totalMaterialWeightPure : 0;
-
-
-     
-
-      const totalMaterial = await materialdata.aggregate([
-        { $match: { product, userType: "walkingCustomer", date: { $gte: startDate, $lt: endDate } } },
-        {
-          $group: {
-            _id: null,
-            totalMaterialMixing: { $sum: "$weightMixing" },
-            totalMaterialPure: { $sum: "$weightPure" },
-          },
-        },
-      ]);
-
-      const totalMaterialMixing = totalMaterial.length > 0 ? totalMaterial[0].totalMaterialMixing : 0;
-      const totalMaterialPure = totalMaterial.length > 0 ? totalMaterial[0].totalMaterialPure : 0;
-
-      return res.status(200).json({
-        message: "Materials and weights fetched successfully.",
-        data: {
-          data: materials,
-          lastMonthDataCustomer,
-          weight: {
-            openingWeight: {
-              weightMixing: openingWeightMixing,
-              weightPure: openingWeightPure,
-            },
-            closingWeight: {
-              weightMixing: closingWeightMixing,
-              weightPure: closingWeightPure,
-            },
-            totalWeight: {
-              totalMixing: totalMaterialMixing,
-              totalPure: totalMaterialPure,
-            },
-          },
-          page: {
-            page: pageNumber,
-            limit: pageSize,
-            totalDocs: totalDocs,
-          },
-        },
-      });
-    }
-  } catch (error) {
+    
+    }catch (error) {
     console.error("Error in getMaterial API:", error);
     res.status(500).json({ message: "Internal server error.", error: error.message });
   }
 };
 
 
-const calculateMaterialWeights = async (month, product, userId) => {
+const getCombinedData = async (req, res) => {
   try {
+    const { month, product, search, userId, userType, page = 1, limit = 10 } = req.query;
+
+    if (!month || !product) {
+      return res.status(400).json({ message: "Month and product are required query parameters." });
+    }
+
     const [year, monthValue] = month.split("-");
+    if (!year || !monthValue || isNaN(year) || isNaN(monthValue) || monthValue > 12 || monthValue < 1) {
+      return res.status(400).json({ message: "Invalid month format. Use YYYY-MM format." });
+    }
+
     const startDate = new Date(`${year}-${monthValue}-01`);
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1);
 
-    const previousMonthDate = new Date(startDate);
-    previousMonthDate.setMonth(previousMonthDate.getMonth() - 1); // Set to previous month
-
-    const previousMonthStart = new Date(previousMonthDate.getFullYear(), previousMonthDate.getMonth(), 1);
-    const previousMonthEnd = new Date(previousMonthDate.getFullYear(), previousMonthDate.getMonth() + 1, 1);
-
-    console.log("Previous Month Start:", previousMonthStart); // Debug log
-    console.log("Previous Month End:", previousMonthEnd);     // Debug log
-
-    // Update to include userId in the aggregation queries
-    const materialData = await materialdata.aggregate([
-      { 
-        $match: { 
-          product, 
-          userId, // Add userId filter
-          userType: "specificCustomer",
-          date: { $gte: startDate, $lt: endDate } 
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalWeightMixing: { $sum: "$weightMixing" },
-          totalWeightPure: { $sum: "$weightPure" },
-        },
-      },
-    ]);
-
-    const closingWeightMixing = materialData[0]?.totalWeightMixing || 0;
-    const closingWeightPure = materialData[0]?.totalWeightPure || 0;
-
-    // Material data for the previous month, filtered by userId
-    const materialDataPreviousMonth = await materialdata.aggregate([
-      { 
-        $match: { 
-          product, 
-          userId, // Add userId filter
-          userType: "specificCustomer",
-          date: { $gte: previousMonthStart, $lt: previousMonthEnd } 
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalWeightMixing: { $sum: "$weightMixing" },
-          totalWeightPure: { $sum: "$weightPure" },
-        },
-      },
-    ]);
-
-    console.log("Material Data (Previous Month):", materialDataPreviousMonth);
-
-    // Fetch customer data for the previous month, filtered by userId
-    const pastCustomerDataPreviousMonth = await Customerdata.aggregate([
-      { 
-        $match: { 
-          product, 
-          userId, // Add userId filter
-          userType: "specificCustomer",
-          date: { $gte: previousMonthStart, $lt: previousMonthEnd } 
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalWeightMixing: { $sum: "$weightMixing" },
-          totalWeightPure: { $sum: "$weightPure" },
-        },
-      },
-    ]);
-
-    console.log("Past Customer Data (Previous Month):", pastCustomerDataPreviousMonth);
-
-    const openingWeightMixing =
-      (materialDataPreviousMonth[0]?.totalWeightMixing || 0) - (pastCustomerDataPreviousMonth[0]?.totalWeightMixing || 0);
-
-    const openingWeightPure =
-      (materialDataPreviousMonth[0]?.totalWeightPure || 0) - (pastCustomerDataPreviousMonth[0]?.totalWeightPure || 0);
-
-    console.log("Opening Weight Mixing:", openingWeightMixing);
-    console.log("Opening Weight Pure:", openingWeightPure);
-
-    return {
-      
-      openingWeight: {
-        weightMixing: openingWeightMixing,
-        weightPure: openingWeightPure,
-      },
-      closingWeight: {
-        weightMixing: closingWeightMixing,
-        weightPure: closingWeightPure,
-      },
+   
+    const commonQuery = {
+      product,
+      date: { $gte: startDate, $lt: endDate },
+      userType: userType || "walkingCustomer",
     };
+
+    if (search) {
+      commonQuery.$or = [
+        { receivedFrom: { $regex: search, $options: "i" } },
+        { clientName: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    if (userId && userType === "specificCustomer") {
+      commonQuery.userId = userId;
+    }
+
+   
+    const pageNumber = parseInt(page, 10);
+    const pageSize = parseInt(limit, 10);
+    const skip = (pageNumber - 1) * pageSize;
+
+   
+    const purchaseData = await materialdata.find(commonQuery).lean();
+
+ 
+    const purchaseMapped = purchaseData.map(item => ({
+      ...item,
+      type: "purchase",
+      name: item.receivedFrom || "N/A"
+    }));
+
+    
+    const saleData = await Customerdata.find(commonQuery).lean();
+
+    const saleMapped = saleData.map(item => ({
+      ...item,
+      type: "sale",
+      name: item.clientName || "N/A"
+    }));
+
+   
+    const combined = [...purchaseMapped, ...saleMapped].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+   
+    const paginatedData = combined.slice(skip, skip + pageSize);
+
+    const weights = await getMonthlyPurchaseAndSale(month, userType, product, userId);
+
+    res.status(200).json({
+      message: "Combined purchase and sale data fetched successfully.",
+      data: {
+        data: paginatedData,
+        weight: weights,
+        page: {
+          page: pageNumber,
+          limit: pageSize,
+          totalDocs: combined.length,
+        },
+      },
+    });
   } catch (error) {
-    console.error("Error in calculateMaterialWeights function:", error);
-    throw new Error("Unable to calculate material weights.");
+    console.error("Error in getCombinedData API:", error);
+    res.status(500).json({ message: "Internal server error.", error: error.message });
   }
 };
-
 
 
 
@@ -672,6 +433,27 @@ const getCustomerbyId = async (req, res) => {
     return res.status(500).json({ success: false, error: 'Error retrieving materials' });
   }
 };
+
+const getcategoryCustomerbyId = async (req, res) => {
+  try {
+  
+    const { id } = req.params;
+
+    const categoryCustomer = await 
+    CategoryCustomerdata.findOne({_id: id}) 
+      
+  
+    return res.json({
+      success: true,
+      data: categoryCustomer,
+     
+    });
+  } catch (error) {
+    console.error(error); 
+    return res.status(500).json({ success: false, error: 'Error retrieving category customer' });
+  }
+};
+
 
 const updateMaterialStatusById = async (req, res) => {
   try {
@@ -744,7 +526,7 @@ const updateCustomerStatusById = async (req, res) => {
 
 const editMaterial = async (req, res) => {
   try {
-    const { date, quantity, quality, weightPure, weightMixing, grossWeight, receivedFrom, billNo, status, product, _id, userId ,userType, userName, phoneNumber } = req.body;
+    const { date, quantity, quality, weightPure, weightMixing, mixingBagsWeight, grossWeight, receivedFrom, billNo, status, product, _id, userId ,userType, userName,  } = req.body;
 
     if (!_id) {
       return res.status(400).json({ error: 'Material ID is required' });
@@ -752,7 +534,7 @@ const editMaterial = async (req, res) => {
 
     const updatedMaterial = await materialdata.findByIdAndUpdate(
       _id,
-      { date, quantity, quality, weightPure, weightMixing, grossWeight, receivedFrom, billNo, status, product,userId , userType, userName, phoneNumber },
+      { date, quantity, quality, weightPure, weightMixing, grossWeight, mixingBagsWeight, receivedFrom, billNo, status, product,userId , userType, userName, },
       { new: true, runValidators: true }
     );
 
@@ -795,7 +577,7 @@ const deleteMaterial = async (req, res) => {
 
 const createCustomer = async (req, res) => {
   try {
-    let { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, billNo, status, product, userId, userType, phoneNumber } = req.body;
+    let { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, billNo, status, product, userId, userType, phoneNumber, ratio } = req.body;
 
     if (!date || !clientName || !quality || !dcNumber  || !rate || !amount || !product) {
       return res.status(400).json({ error: 'All fields are required: date, clientName, quality, dcNumber, weightPure, weightMixing, rate, amount, billNo' });
@@ -854,6 +636,7 @@ const createCustomer = async (req, res) => {
       userId,
       userType,
       phoneNumber,
+      ratio
     });
 
     await newCustomer.save();
@@ -869,7 +652,7 @@ const createCustomer = async (req, res) => {
 
 const editCustomer = async (req, res) => {
   try {
-    const { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, billNo, status, product, _id } = req.body;
+    const { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, billNo, status, product, ratio, phoneNumber, _id } = req.body;
 
     if (!_id) {
       return res.status(400).json({ error: 'Customer ID is required' });
@@ -877,7 +660,7 @@ const editCustomer = async (req, res) => {
 
     const updatedCustomer = await Customerdata.findByIdAndUpdate(
       _id,
-      { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, billNo, status, product },
+      { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, billNo, status, product, ratio, phoneNumber },
       { new: true, runValidators: true }
     );
 
@@ -936,40 +719,52 @@ try {
 };
 
 const getCategoryCustomer = async (req, res) => {
-try {
-  const {clientName, page = 1, limit = 10 } = req.query;
+  try {
+    const { search, page = 1, limit = 10 } = req.query;
 
-  const filter = clientName ? {clientName: { $regex: clientName, $options: 'i' } } : {};
+    const pageNumber = parseInt(page, 10);
+    const pageSize = parseInt(limit, 10);
+    const skip = (pageNumber - 1) * pageSize;
 
-  const CategoryCustomer = await CategoryCustomerdata.find(filter)
-    .skip((page - 1) * parseInt(limit))
-    .limit(parseInt(limit)).sort({ createdAt: -1 });
+    const filter = search
+  ? { clientName: { $regex: search, $options: 'i' } }
+  : {};
+    const categoryCustomers = await CategoryCustomerdata.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(pageSize);
 
-  const totalCategoryCustomer = await CategoryCustomerdata.countDocuments(filter);
+    const totalDocs = await CategoryCustomerdata.countDocuments(filter);
 
-  res.status(200).json({
-    totalCategoryCustomer,
-    totalPages: Math.ceil(totalCategoryCustomer / limit),
-    currentPage: parseInt(page),
-    data: {data: CategoryCustomer}
-  });
-} catch (error) {
-  res.status(500).json({ error: error.message });
-}
+    return res.status(200).json({
+      message: "Category customers fetched successfully.",
+      data: {
+        data: categoryCustomers,
+        page: {
+          page: pageNumber,
+          limit: pageSize,
+          totalDocs: totalDocs,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error in getCategoryCustomer API:", error);
+    res.status(500).json({ message: "Internal server error.", error: error.message });
+  }
 };
 
 const deleteCategoryCustomer = async (req, res) => {
   try {
   
-    const { _id } = req.params;
+    const { id } = req.params;
 
   
-    if (!_id) {
+    if (!id) {
       return res.status(400).json({ error: 'Customer ID is required' });
     }
 
 
-    const deletedCategoryCustomer = await CategoryCustomerdata.findByIdAndDelete(_id);
+    const deletedCategoryCustomer = await CategoryCustomerdata.findByIdAndDelete(id);
 
    
     if (!deletedCategoryCustomer) {
@@ -989,7 +784,7 @@ const EditCategoryCustomer = async (req, res) => {
     const { _id, clientName, type, phoneNumber } = req.body;
 
     if (!_id) {
-      return res.status(400).json({ message: 'ID is required' });
+      return res.status(400).json({ message: "ID is required" });
     }
 
     const updatedCategoryCustomer = await CategoryCustomerdata.findByIdAndUpdate(
@@ -998,73 +793,87 @@ const EditCategoryCustomer = async (req, res) => {
       { new: true }
     );
 
-    if (!updatedCustomer) {
-      return res.status(404).json({ message: 'Customer not found' });
+    if (!updatedCategoryCustomer) { // ✅ Corrected variable name
+      return res.status(404).json({ message: "Customer not found" });
     }
 
-    res.status(200).json({ message: 'Customer updated successfully', CategoryCustomer: updatedCategoryCustomer });
+    res.status(200).json({ 
+      message: "Customer updated successfully", 
+      CategoryCustomer: updatedCategoryCustomer 
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
-
 const getwalkingcustomer = async (req, res) => {
   try {
-    const { month } = req.query; 
+    const { month, search, page = 1, limit = 10 } = req.query;
+    const pageNumber = parseInt(page);
+    const pageSize = parseInt(limit);
 
+    const matchCondition = { userType: "walkingCustomer" };
 
+    if (month) {
+      matchCondition.$expr = { $eq: [{ $substr: ["$date", 0, 7] }, month] };
+    }
 
-    
-    const result = await Customerdata.aggregate([
-        {
-            $match: {
-                userType: "walkingCustomer", // Fixed userType
-                $expr: {
-                    $eq: [{ $substr: ["$date", 0, 7] }, month] // Extract month from date
-                }
-            }
-        },
-        {
-            $group: {
-                _id: "$phoneNumber", 
-                clientName: { $first: "$clientName" }
-            }
-        },
-        {
-            $project: {
-                _id: 0,             
-                phoneNumber: "$_id", 
-                clientName: 1         
-            }
+    if (search) {
+      matchCondition.clientName = { $regex: search, $options: "i" };
+    }
+
+    const totalDocs = await Customerdata.countDocuments(matchCondition);
+
+    const walkingCustomer = await Customerdata.aggregate([
+      { $match: matchCondition },
+      {
+        $group: {
+          _id: "$phoneNumber",
+          clientName: { $first: "$clientName" }
         }
+      },
+      {
+        $project: {
+          _id: 0,
+          phoneNumber: "$_id",
+          clientName: 1
+        }
+      },
+      { $skip: (pageNumber - 1) * pageSize },
+      { $limit: pageSize }
     ]);
 
-    
     return res.status(200).json({
-        data: {
-            data: result
+      message: "Category customers fetched successfully.",
+      data: {
+        data: walkingCustomer,
+        page: {
+          page: pageNumber,
+          limit: pageSize,
+          totalDocs: totalDocs
         }
+      }
     });
-} catch (error) {
+  } catch (error) {
     console.error("Error fetching customers:", error);
     return res.status(500).json({ message: "Server Error" });
-}
+  }
 };
+
 
 const getCustomerdetails = async (req, res) => {
   try {
-    const { month, userType, userId, phoneNumber } = req.query;
+    const { month, userType, userId, phoneNumber, product, page = 1, limit = 10 } = req.query;
+    const pageNumber = parseInt(page);
+    const pageSize = parseInt(limit);
 
     let query = {};
 
-    // Query setup based on userType
     if (userType === "specificCustomer") {
       query.userId = userId;
     } else if (userType === "walkingCustomer") {
       query.phoneNumber = phoneNumber;
     }
 
-    // Month filtering
     if (month) {
       const startDate = new Date(`${month}-01`);
       const endDate = new Date(`${month}-01`);
@@ -1076,23 +885,55 @@ const getCustomerdetails = async (req, res) => {
       };
     }
 
-    // Fetch detailed customer data
+    const totalDocs = await Customerdata.countDocuments(query);
+
     const customerData = await Customerdata.find(query, {
       date: 1,
       quality: 1,
       dcNumber: 1,
       rate: 1,
       amount: 1,
-    });
+      grossWeight: 1,
+    })
+      .skip((pageNumber - 1) * pageSize)
+      .limit(pageSize);
 
-    // Fetch unique bill numbers
-    const uniqueBillNumbers = await Customerdata.distinct("billNo", query);
+    const billSummary = await Customerdata.aggregate([
+  { $match: query }, 
+  {
+    $group: {
+      _id: "$billNo",           
+      totalRate: { $sum: "$rate" },
+      totalAmount: { $sum: "$amount" },
+      totalgrossWeight: { $sum: "$grossWeight" },
+    },
+  },
+  {
+    $project: {
+      billNo: "$_id",          
+      _id: 0,
+      totalRate: 1,
+      totalAmount: 1,
+      totalgrossWeight: 1,
+    },
+  },
+]);
 
-    // Response
+    const weights = await getMonthlyPurchaseAndSale(month, userType, product, userId);
+
+
     res.status(200).json({
+      message: "Customer details fetched successfully.",
       data: {
-        data: customerData, // Detailed customer data
-        billNo: uniqueBillNumbers,  // Unique bill numbers
+        data: customerData,
+        billNo: billSummary,
+        weight: weights,
+
+        page: {
+          page: pageNumber,
+          limit: pageSize,
+          totalDocs: totalDocs,
+        },
       },
     });
   } catch (error) {
@@ -1101,108 +942,148 @@ const getCustomerdetails = async (req, res) => {
   }
 };
 
-cron.schedule("0 0 1 * *", async () => {
-  try {
-    const currentMonthDate = new Date();
-    const currentMonth = currentMonthDate.getMonth(); // 0-based index (0 = Jan)
-    const currentYear = currentMonthDate.getFullYear();
+const getOpeningBalance = async (matchConditions, firstDayOfGivenMonth) => {
 
-    // **System February 2025 se chal raha hai**
-    if (currentYear === 2025 && currentMonth === 0) { // January me na chale
-      console.log("Cron February 2025 se chalegi.");
-      return;
+  
+  console.log(" Start Date for Opening Balance:", firstDayOfGivenMonth);
+
+
+  const openingMatchConditions = { ...matchConditions, date: { $lt: firstDayOfGivenMonth } };
+  console.log(" Opening Match Conditions:", openingMatchConditions);
+
+  
+  const purchase = await materialdata.aggregate([
+    {
+      $match: openingMatchConditions
+    },
+    {
+      $group: {
+        _id: null,
+        totalWeightMixing: { $sum: "$weightMixing" },
+        totalWeightPure: { $sum: "$weightPure" }
+      }
     }
+  ]);
+  console.log(" Opening Purchase Result:", purchase);
 
-    // Previous Month Calculate
-    const previousMonthDate = new Date(currentYear, currentMonth - 1);
-    const previousMonth = previousMonthDate.getMonth();
-    const previousYear = previousMonthDate.getFullYear();
 
-    const previousMonthStart = new Date(previousYear, previousMonth, 1);
-    const previousMonthEnd = new Date(previousYear, previousMonth + 1, 1);
-
-    console.log("Previous Month Start:", previousMonthStart);
-    console.log("Previous Month End:", previousMonthEnd);
-
-    // **Unique Product Types (Customer + Material)**
-    const productTypesCustomer = await Customerdata.distinct("product");
-    const productTypesMaterial = await materialdata.distinct("product");
-
-    // Merge both product types into a unique list
-    const productTypes = [...new Set([...productTypesCustomer, ...productTypesMaterial])];
-
-    console.log("All Unique Product Types:", productTypes);
-
-    // Process each product type
-    for (const product of productTypes) {
-      // Customer Data Aggregation
-      const customerData = await Customerdata.aggregate([
-        { $match: { product, userType: "walkingCustomer", date: { $gte: previousMonthStart, $lt: previousMonthEnd } } },
-        {
-          $group: {
-            _id: null,
-            totalWeightMixing: { $sum: "$weightMixing" },
-            totalWeightPure: { $sum: "$weightPure" },
-          },
-        },
-      ]);
-      const totalCustomerWeightMixing = customerData[0]?.totalWeightMixing || 0;
-      const totalCustomerWeightPure = customerData[0]?.totalWeightPure || 0;
-
-      // Material Data Aggregation
-      const materialData = await materialdata.aggregate([
-        { $match: { product, userType: "walkingCustomer", date: { $gte: previousMonthStart, $lt: previousMonthEnd } } },
-        {
-          $group: {
-            _id: null,
-            totalWeightMixing: { $sum: "$weightMixing" },
-            totalWeightPure: { $sum: "$weightPure" },
-          },
-        },
-      ]);
-      const totalMaterialWeightMixing = materialData[0]?.totalWeightMixing || 0;
-      const totalMaterialWeightPure = materialData[0]?.totalWeightPure || 0;
-
-      // **Fetch Previous Month Opening Balance from 2 months ago**
-      const twoMonthsBackDate = new Date(currentYear, currentMonth - 2); // Go 2 months back
-      const twoMonthsBackMonth = twoMonthsBackDate.getMonth();
-      const twoMonthsBackYear = twoMonthsBackDate.getFullYear();
-
-      const lastMonthDataCustomer = await CustomerWeightdata.findOne({
-        product,
-        month: `${twoMonthsBackYear}-${String(twoMonthsBackMonth + 1).padStart(2, "0")}`, // 2 months back (1-based format)
-      });
-
-      const openingWeightMixing = lastMonthDataCustomer ? lastMonthDataCustomer.remainingWeightMixing : 0;
-      const openingWeightPure = lastMonthDataCustomer ? lastMonthDataCustomer.remainingWeightPure : 0;
-
-      // **Remaining Weight Calculation for Customer**
-      const remainingWeightPure =
-        totalMaterialWeightPure - totalCustomerWeightPure + openingWeightPure;
-
-      const remainingWeightMixing =
-        totalMaterialWeightMixing - totalCustomerWeightMixing + openingWeightMixing;
-
-      // Save to WeightManagementCustomer Document
-      await CustomerWeightdata.create({
-        product,
-        month: `${previousYear}-${String(previousMonth + 1).padStart(2, "0")}`, // Save with 1-based month format
-        totalCustomerWeightPure,
-        totalCustomerWeightMixing,
-        openingWeightPure,
-        openingWeightMixing,
-        remainingWeightPure,
-        remainingWeightMixing,
-        totalMaterialWeightMixing,
-        totalMaterialWeightPure,
-      });
-
-      console.log(`Saved data for product: ${product}`);
+  const sale = await Customerdata.aggregate([
+    {
+      $match: openingMatchConditions
+    },
+    {
+      $group: {
+        _id: null,
+        totalWeightMixing: { $sum: "$weightMixing" },
+        totalWeightPure: { $sum: "$weightPure" }
+      }
     }
-  } catch (error) {
-    console.error("Error during cron job:", error);
+  ]);
+  console.log(" Opening Sale Result:", sale);
+
+  
+  const purchaseWeightMixing = purchase[0]?.totalWeightMixing || 0;
+  const purchaseWeightPure = purchase[0]?.totalWeightPure || 0;
+
+  const saleWeightMixing = sale[0]?.totalWeightMixing || 0;
+  const saleWeightPure = sale[0]?.totalWeightPure || 0;
+
+  const openingBalanceWeightMixing = purchaseWeightMixing - saleWeightMixing;
+  const openingBalanceWeightPure = purchaseWeightPure - saleWeightPure;
+
+  console.log("👉 Final Opening Balance:", {
+    openingBalanceWeightMixing,
+    openingBalanceWeightPure
+  });
+
+  return { openingBalanceWeightMixing, openingBalanceWeightPure };
+};
+
+
+
+const getMonthlyPurchaseAndSale = async (date, userType, product, userId ) => {
+
+  const [year, monthValue] = date.split("-");
+  const startDate = new Date(`${year}-${monthValue}-01`);
+  const endDate = new Date(startDate);
+  endDate.setMonth(endDate.getMonth() + 1);
+
+  // Define match conditions dynamically
+  let matchConditions = {
+    product,
+    userType,
+    date: { $gte: startDate, $lt: endDate } 
   }
-});
+
+  // Add userId filter only if userType is "specificCustomer"
+  if (userType === "specificCustomer") {
+    matchConditions.userId = userId;
+  }
+  console.log("okm", matchConditions)
+
+  
+  const purchase = await materialdata.aggregate([
+    {
+      $match: matchConditions
+    },
+    {
+      $group: {
+        _id: null,
+        totalWeightMixing: { $sum: "$weightMixing" },
+        totalWeightPure: { $sum: "$weightPure" },
+        totalPureBags: { $sum: "$pureBags" },
+        totalMixingBags: { $sum: "$mixingBags"}
+      }
+    }
+  ]);
+
+
+  
+  const sale = await Customerdata.aggregate([
+    {
+      $match: matchConditions
+    },
+    {
+      $group: {
+        _id: null,
+        totalWeightMixing: { $sum: "$weightMixing" },
+        totalWeightPure: { $sum: "$weightPure" }
+      }
+    }
+  ]);
+  
+ 
+  
+
+  const { openingBalanceWeightMixing, openingBalanceWeightPure } = await getOpeningBalance(matchConditions, startDate);
+  
+
+    console.log("ilk", openingBalanceWeightMixing, openingBalanceWeightPure)
+
+    const purchaseWeightMixing = purchase[0]?.totalWeightMixing || 0;
+    const purchaseWeightPure = purchase[0]?.totalWeightPure || 0;
+
+    const Mixingbags = purchase[0]?.totalMixingBags || 0;
+    const Purebags = purchase[0]?. totalPureBags || 0;
+   
+
+
+    const saleWeightMixing = sale[0]?.totalWeightMixing || 0;
+    const saleWeightPure = sale[0]?.totalWeightPure || 0;
+
+    const totalPurchaseWeightMixing = purchaseWeightMixing + openingBalanceWeightMixing;
+    const totalPurchaseWeightPure = purchaseWeightPure + openingBalanceWeightPure;
+
+    
+    const closingWeightMixing = totalPurchaseWeightMixing - saleWeightMixing;
+    const closingWeightPure = totalPurchaseWeightPure - saleWeightPure;
+
+    return { openingBalanceWeightMixing, openingBalanceWeightPure, purchaseWeightMixing, purchaseWeightPure, saleWeightMixing, saleWeightPure, totalPurchaseWeightMixing, totalPurchaseWeightPure, closingWeightMixing, closingWeightPure, Mixingbags, Purebags  }
+
+
+
+
+}
 
 
 
@@ -1210,4 +1091,4 @@ cron.schedule("0 0 1 * *", async () => {
 
 
 
-module.exports = { createUser, getCustomerbyId, getCustomer, getMaterialbyId,getMaterial, loginUser,Creatematerial,editMaterial, deleteMaterial, createCustomer, editCustomer, deleteCustomer,updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails };
+module.exports = { createUser, getCustomerbyId, getCustomer, getMaterialbyId,getMaterial, loginUser,Creatematerial,editMaterial, deleteMaterial, createCustomer, editCustomer, deleteCustomer,updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, getCombinedData };

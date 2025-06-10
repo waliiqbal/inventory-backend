@@ -3,65 +3,64 @@ const mongoose = require("mongoose");
 const materialSchema = new mongoose.Schema({
   date: { 
     type: Date, 
-    required: true // Ensure date is mandatory
+    required: true 
   },
   quantity: { 
     type: String, 
     
-    required: true // Ensure quantity is mandatory
+    required: true 
   },
   quality: { 
     type: String, 
-    required: true // Ensure quality is mandatory
+    required: true 
   },
   pureBags: { 
     type: Number, 
-    required: false  // Ensure weightPure is mandatory
   },
   mixingBags: { 
     type: Number, 
-    required: false // Ensure weightMixing is mandatory
+    required: false 
   },
   mixingBagsWeight: { 
     type: Number, 
-    required: false // Ensure weightMixing is mandatory
+    required: false
   },
 
   totalBags: { 
     type: Number, 
-    required: false // Ensure weightMixing is mandatory
+    required: false 
   },
 
   weightPure: { 
     type: Number, 
-    required: false // Ensure weightMixing is mandatory
+    required: false 
   },
 
   weightMixing: { 
     type: Number, 
-    required: false // Ensure weightMixing is mandatory
+    required: false 
   },
   grossWeight: { 
     type: Number,
-    required: false // Calculated automatically if middleware is added
+    required: false 
   },
   receivedFrom: { 
     type: String, 
-    required: true // Ensure receivedFrom is mandatory
+    required: true 
   },
   billNo: { 
     type: String, 
-    required: false // Ensure billNo is mandatory
+    required: false 
   },
-  status: {  // Added status field to manage approval
+  status: {  
     type: String,
-    default: "pending", // By default, status will be 'pending'
+    default: "pending", 
     
 },
 product: {
   type: String,
-  enum: ['poleythene', 'hydensity'], // Define allowed values
-  required: true // Mark as required if needed
+  enum: ['poleythene', 'hydensity'], 
+  required: true 
 },
 
 userId: {
@@ -86,7 +85,7 @@ userName: {
 
   
 }, { 
-  timestamps: true // Automatically adds createdAt and updatedAt fields
+  timestamps: true 
 });
 
 module.exports = { materialSchema };
