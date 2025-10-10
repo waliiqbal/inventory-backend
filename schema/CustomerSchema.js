@@ -70,7 +70,34 @@ const CustomerSchema = new mongoose.Schema({
         type: String,
         required: false 
       },
+      additionalRate: {
+        type: Boolean,
+        required: false 
+      },
       
+extraRate: {    
+    type: Number,  
+    required: true,   
+    default: 0,
+},
+
+extraAmount: {    
+    type: Number,  
+    required: true,   
+    default: 0,
+},
+
+totalAmount: {    
+    type: Number,  
+    required: true,   
+    default: 0,
+},
+
+
+ description: {
+        type: String,
+        required: false 
+      },
 }, { 
     timestamps: true 
 });

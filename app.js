@@ -12,12 +12,12 @@ app.use(express.static('public'));
 
 app.use(express.json({ limit: '50mb' }));
 
-// Move the connectDB function call before starting the server
+
 connectDB().then(() => {
   app.listen(port, () => {
     console.log(`Example app listening at http://localhost:${port}`);
   });
 });
 
-// Now you can use CustomRoutes after it's defined
+
 CustomRoutes(app, express);

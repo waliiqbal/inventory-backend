@@ -44,6 +44,11 @@ const materialSchema = new mongoose.Schema({
     type: Number,
     required: false 
   },
+
+  rate: { 
+    type: Number,
+    required: false 
+  },
   receivedFrom: { 
     type: String, 
     required: true 
@@ -81,7 +86,13 @@ phoneNumber: {
 userName: {
   type: String,
   required: false
-}
+},
+
+isNorani: {
+  type: Boolean,
+  default: false,
+  required: false
+},
 
   
 }, { 

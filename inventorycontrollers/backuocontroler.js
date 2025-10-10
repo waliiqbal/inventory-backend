@@ -124,6 +124,9 @@ const Creatematerial = async (req, res) => {
       userType,
       userName,
       phoneNumber,
+      isNorani,
+      rate,
+
     } = req.body;
 
     // Calculate weights based on the given logic
@@ -583,7 +586,7 @@ const deleteMaterial = async (req, res) => {
 
 const createCustomer = async (req, res) => {
   try {
-    let { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, billNo, status, product, userId, userType, phoneNumber, ratio,additionalRate, extraRate, extraAmount, totalAmount, description  } = req.body;
+    let { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, billNo, status, product, userId, userType, phoneNumber, ratio,additionalRate, extraRate, extraAmount, totalAmount  } = req.body;
 
     if (!date || !clientName || !quality || !dcNumber  || !rate || !amount || !product) {
       return res.status(400).json({ error: 'All fields are required: date, clientName, quality, dcNumber, weightPure, weightMixing, rate, amount, billNo' });
@@ -651,7 +654,6 @@ const createCustomer = async (req, res) => {
       extraRate,
       extraAmount,
       totalAmount,
-      description,
     });
 
     await newCustomer.save();
@@ -667,7 +669,7 @@ const createCustomer = async (req, res) => {
 
 const editCustomer = async (req, res) => {
   try {
-    const { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, billNo, status, product, ratio, phoneNumber, _id, additionalRate, extraRate , extraAmount, totalAmount, description } = req.body;
+    const { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, billNo, status, product, ratio, phoneNumber, _id, additionalRate, extraRate , extraAmount, totalAmount } = req.body;
 
     if (!_id) {
       return res.status(400).json({ error: 'Customer ID is required' });
@@ -686,7 +688,7 @@ const editCustomer = async (req, res) => {
 
     const updatedCustomer = await Customerdata.findByIdAndUpdate(
       _id,
-      { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, status, product, ratio, phoneNumber, additionalRate, extraRate , extraAmount, totalAmount, description },
+      { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, status, product, ratio, phoneNumber, additionalRate, extraRate , extraAmount, totalAmount },
       { new: true, runValidators: true }
     );
 
@@ -856,7 +858,7 @@ const getwalkingcustomer = async (req, res) => {
       { $match: matchCondition },
       {
         $group: {
-          _id: "$billNo",
+          _id: "$phoneNumber",
           clientName: { $first: "$clientName" }
         }
       },
@@ -894,21 +896,19 @@ const getCustomerdetails = async (req, res) => {
     const { month, userType, userId, phoneNumber, product, page = 1, limit = 10 } = req.query;
     const pageNumber = parseInt(page);
     const pageSize = parseInt(limit);
-    
 
     let query = {};
 
     if (userType === "specificCustomer") {
       query.userId = userId;
     } else if (userType === "walkingCustomer") {
-      query.billNo = phoneNumber;
+      query.phoneNumber = phoneNumber;
     }
 
     if (month) {
-      const [year, monthValue] = month.split("-").map(Number);
-      const startDate = new Date(Date.UTC(year, monthValue - 1, 1));
-      const endDate = new Date(Date.UTC(year, monthValue, 1));
-      
+      const startDate = new Date(`${month}-01`);
+      const endDate = new Date(`${month}-01`);
+      endDate.setMonth(endDate.getMonth() + 1);
 
       query.date = {
         $gte: startDate,
@@ -931,7 +931,6 @@ const getCustomerdetails = async (req, res) => {
       extraRate: 1,
       extraAmount: 1,
       totalAmount: 1,
-      description: 1,
     })
       .skip((pageNumber - 1) * pageSize)
       .limit(pageSize);
@@ -958,8 +957,6 @@ totalAmount: {
   }
 },
           totalgrossWeight: { $sum: "$grossWeight" },
-
-          amount: { $sum: "$amount" },
         },
       },
       {
@@ -969,16 +966,15 @@ totalAmount: {
           totalRate: 1,
           totalAmount: 1,
           totalgrossWeight: 1,
-          amount: 1,
         },
       },
     ]);
 
     // ✅ Agar userType specificCustomer hai, to Materialdata ka record dhoondo
     if (userType === "specificCustomer" && userId && month) {
-      const [year, monthValue] = month.split("-").map(Number);
-      const startDate = new Date(Date.UTC(year, monthValue - 1, 1));
-      const endDate = new Date(Date.UTC(year, monthValue, 1));
+      const startDate = new Date(`${month}-01`);
+      const endDate = new Date(`${month}-01`);
+      endDate.setMonth(endDate.getMonth() + 1);
 
       const materialInfo = await materialdata.findOne({
         userId: userId,
@@ -1085,95 +1081,6 @@ const getMonthlyPurchaseAndSale = async (date, userType, product, userId ) => {
   // Define match conditions dynamically
   let matchConditions = {
     product,
-    userType,
-    date: { $gte: startDate, $lt: endDate } 
-  }
-
-  // Add userId filter only if userType is "specificCustomer"
-  if (userType === "specificCustomer") {
-    matchConditions.userId = userId;
-  }
-  console.log("okm", matchConditions)
-
-  
-  const purchase = await materialdata.aggregate([
-    {
-      $match: matchConditions
-    },
-    {
-      $group: {
-        _id: null,
-        totalWeightMixing: { $sum: "$weightMixing" },
-        totalWeightPure: { $sum: "$weightPure" },
-        totalPureBags: { $sum: "$pureBags" },
-        totalMixingBags: { $sum: "$mixingBags"}
-      }
-    }
-  ]);
-
-
-  
-  const sale = await Customerdata.aggregate([
-    {
-      $match: matchConditions
-    },
-    {
-      $group: {
-        _id: null,
-        totalWeightMixing: { $sum: "$weightMixing" },
-        totalWeightPure: { $sum: "$weightPure" }
-      }
-    }
-  ]);
-  
- 
-  
-
-  const { openingBalanceWeightMixing, openingBalanceWeightPure } = await getOpeningBalance(matchConditions, startDate);
-  
-
-    console.log("ilk", openingBalanceWeightMixing, openingBalanceWeightPure)
-
-    const purchaseWeightMixing = purchase[0]?.totalWeightMixing || 0;
-    const purchaseWeightPure = purchase[0]?.totalWeightPure || 0;
-
-    const Mixingbags = purchase[0]?.totalMixingBags || 0;
-    const Purebags = purchase[0]?. totalPureBags || 0;
-   
-
-
-    const saleWeightMixing = sale[0]?.totalWeightMixing || 0;
-    const saleWeightPure = sale[0]?.totalWeightPure || 0;
-
-    const totalPurchaseWeightMixing = purchaseWeightMixing + openingBalanceWeightMixing;
-    const totalPurchaseWeightPure = purchaseWeightPure + openingBalanceWeightPure;
-
-    
-    const closingWeightMixing = totalPurchaseWeightMixing - saleWeightMixing;
-    const closingWeightPure = totalPurchaseWeightPure - saleWeightPure;
-
-    return { openingBalanceWeightMixing, openingBalanceWeightPure, purchaseWeightMixing, purchaseWeightPure, saleWeightMixing, saleWeightPure, totalPurchaseWeightMixing, totalPurchaseWeightPure, closingWeightMixing, closingWeightPure, Mixingbags, Purebags  }
-
-
-
-
-}
-
-const getMonthlyPurchaseAndSaleForExtrudingBilling = async (date, userType, userId ) => {
-
-  // Parse year and month as numbers
-    const [year, monthValue] = date.split("-").map(Number);
-    
-    if (!year || !monthValue || isNaN(year) || isNaN(monthValue) || monthValue > 12 || monthValue < 1) {
-      return res.status(400).json({ message: "Invalid month format. Use YYYY-MM format." });
-    }
-
-    // Construct start and end dates using UTC to ensure consistency
-    const startDate = new Date(Date.UTC(year, monthValue - 1, 1));
-    const endDate = new Date(Date.UTC(year, monthValue, 1));
-
-  // Define match conditions dynamically
-  let matchConditions = {
     userType,
     date: { $gte: startDate, $lt: endDate } 
   }
