@@ -85,7 +85,6 @@ const loginUser = async (req, res) => {
       userRole: user.userRole,
     };
 
-   n
     const token = jwt.sign(payload, process.env.JWT_SECRET_KEY, {
       expiresIn: '1h', 
     });
@@ -124,6 +123,9 @@ const Creatematerial = async (req, res) => {
       userType,
       userName,
       phoneNumber,
+      isNorani,
+      rate,
+
     } = req.body;
 
     // Calculate weights based on the given logic
@@ -221,7 +223,6 @@ const getCustomer = async (req, res) => {
   
     const customers = await Customerdata.find(query).skip(skip).limit(pageSize);
 
-   a
     const totalDocs = await Customerdata.countDocuments(query);
 
       const weights = await getMonthlyPurchaseAndSale(month, userType, product, userId);
@@ -891,24 +892,30 @@ const getwalkingcustomer = async (req, res) => {
 
 const getCustomerdetails = async (req, res) => {
   try {
-    const { month, userType, userId, phoneNumber, product, page = 1, limit = 10 } = req.query;
+    const { month, userType, userId, phoneNumber, billNo, product, page = 1, limit = 10 } = req.query;
     const pageNumber = parseInt(page);
     const pageSize = parseInt(limit);
-    
 
     let query = {};
 
     if (userType === "specificCustomer") {
-      query.userId = userId;
+      if (billNo) {
+        query.$or = [
+          { userId: userId },
+          { billNo: billNo }
+        ];
+      } else {
+        query.userId = userId;
+      }
     } else if (userType === "walkingCustomer") {
       query.billNo = phoneNumber;
+      query.userType = "walkingCustomer";
     }
 
     if (month) {
       const [year, monthValue] = month.split("-").map(Number);
       const startDate = new Date(Date.UTC(year, monthValue - 1, 1));
       const endDate = new Date(Date.UTC(year, monthValue, 1));
-      
 
       query.date = {
         $gte: startDate,
@@ -941,24 +948,23 @@ const getCustomerdetails = async (req, res) => {
       {
         $group: {
           _id: "$billNo",
-         totalRate: {
-  $sum: {
-    $add: [
-      "$rate",
-      { $ifNull: ["$extraRate", 0] }
-    ]
-  }
-},
-totalAmount: {
-  $sum: {
-    $add: [
-      "$amount",
-      { $ifNull: ["$extraAmount", 0] }
-    ]
-  }
-},
+          totalRate: {
+            $sum: {
+              $add: [
+                "$rate",
+                { $ifNull: ["$extraRate", 0] }
+              ]
+            }
+          },
+          totalAmount: {
+            $sum: {
+              $add: [
+                "$amount",
+                { $ifNull: ["$extraAmount", 0] }
+              ]
+            }
+          },
           totalgrossWeight: { $sum: "$grossWeight" },
-
           amount: { $sum: "$amount" },
         },
       },
@@ -975,38 +981,45 @@ totalAmount: {
     ]);
 
     // ✅ Agar userType specificCustomer hai, to Materialdata ka record dhoondo
+    let materialInfo = [];
     if (userType === "specificCustomer" && userId && month) {
       const [year, monthValue] = month.split("-").map(Number);
       const startDate = new Date(Date.UTC(year, monthValue - 1, 1));
       const endDate = new Date(Date.UTC(year, monthValue, 1));
 
-      const materialInfo = await materialdata.findOne({
+      materialInfo = await materialdata.find({
         userId: userId,
         date: {
           $gte: startDate,
           $lt: endDate,
         },
-         isNorani: true,
+        isNorani: true,
       });
 
-      if (materialInfo && billSummary.length > 0) {
-        const { grossWeight, rate } = materialInfo;
-        const amount = grossWeight * rate;
+      if (Array.isArray(materialInfo) && materialInfo.length > 0 && billSummary.length > 0) {
+        materialInfo = materialInfo.map(item => {
+          const { grossWeight, rate } = item;
+          const amount = grossWeight * rate;
 
-        // ✅ Inject kar rahe hain company values billSummary[0] me
-        billSummary[0].grossWeightCompany = grossWeight;
-        billSummary[0].rateCompany = rate;
-        billSummary[0].amountCompany = amount;
+          // ✅ Inject 3 company fields into each materialInfo item
+          return {
+            ...item.toObject?.() || item, // handle Mongoose documents safely
+            grossWeightCompany: grossWeight,
+            rateCompany: rate,
+            amountCompany: amount,
+          };
+        });
       }
     }
 
-    const weights = await getMonthlyPurchaseAndSale(month, userType, product, userId);
+    const weights = await getMonthlyPurchaseAndSaleForExtrudingBilling(month, userType, userId);
 
     res.status(200).json({
       message: "Customer details fetched successfully.",
       data: {
         data: customerData,
         billNo: billSummary,
+        materialInfo: materialInfo,
         weight: weights,
         page: {
           page: pageNumber,
@@ -1020,6 +1033,7 @@ totalAmount: {
     res.status(500).json({ message: "Server error", error });
   }
 };
+
 
 const getOpeningBalance = async (matchConditions, firstDayOfGivenMonth) => {
   const openingMatchConditions = { ...matchConditions, date: { $lt: firstDayOfGivenMonth } };
@@ -1247,7 +1261,6 @@ const getMonthlyPurchaseAndSaleForExtrudingBilling = async (date, userType, user
 
 
 }
-
 
 
 
