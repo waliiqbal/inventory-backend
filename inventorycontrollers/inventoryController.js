@@ -22,6 +22,9 @@ const CustomerWeightdata = mongoose.model("customerWeight", customerWeightSchema
 const materialdata = mongoose.model("material", materialSchema); 
 const userData = mongoose.model('user', userSchema);
 const CategoryCustomerdata = mongoose.model("CategoryCustomer", CategoryCustomerSchema); 
+//form sales leider
+const { salesPaymentSchema } = require("../schema/salesPayment");
+const SalesPaymentData = mongoose.model("SalesPayment", salesPaymentSchema);
 
 
 
@@ -1263,8 +1266,281 @@ const getMonthlyPurchaseAndSaleForExtrudingBilling = async (date, userType, user
 }
 
 
+const receiveSalesPayment = async (req, res) => {
+  try {
+    const {
+      userId,
+      userType,
+      clientName,
+      phoneNumber,
+      billNo,
+      folio,
+      date,
+      amount,
+      paymentMethod,
+      description,
+    } = req.body;
+
+    if (!userType || !date || !amount) {
+      return res.status(400).json({
+        success: false,
+        message: "userType, date and amount are required",
+      });
+    }
+
+    if (amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount must be greater than 0",
+      });
+    }
+
+    if (userType === "specificCustomer" && !userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required for specific customer",
+      });
+    }
+
+    if (userType === "walkingCustomer" && !phoneNumber && !billNo) {
+      return res.status(400).json({
+        success: false,
+        message: "phoneNumber or billNo is required for walking customer",
+      });
+    }
+
+    const payment = new SalesPaymentData({
+      userId,
+      userType,
+      clientName,
+      phoneNumber,
+      billNo,
+      folio,
+      date,
+      amount,
+      paymentMethod: paymentMethod || "cash",
+      description: description || "Payment received",
+    });
+
+    await payment.save();
+
+    return res.status(201).json({
+      success: true,
+      message: "Payment received successfully",
+      data: payment,
+    });
+
+  } catch (error) {
+    console.error("receiveSalesPayment error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error receiving payment",
+      error: error.message,
+    });
+  }
+};
+
+const getSalesLedgerYearly = async (req, res) => {
+  try {
+    const { year, userType, userId, phoneNumber, billNo } = req.query;
+
+    if (!year || !userType) {
+      return res.status(400).json({
+        success: false,
+        message: "year and userType are required",
+      });
+    }
+
+    const startDate = new Date(Date.UTC(Number(year), 0, 1));
+    const endDate = new Date(Date.UTC(Number(year) + 1, 0, 1));
+
+    const customerQuery = {
+      userType,
+      date: { $gte: startDate, $lt: endDate },
+    };
+
+    const paymentQuery = {
+      userType,
+      date: { $gte: startDate, $lt: endDate },
+    };
+
+    if (userType === "specificCustomer") {
+      customerQuery.userId = userId;
+      paymentQuery.userId = userId;
+    }
+
+    if (userType === "walkingCustomer") {
+      if (billNo) {
+        customerQuery.billNo = billNo;
+        paymentQuery.billNo = billNo;
+      }
+
+      if (phoneNumber) {
+        paymentQuery.phoneNumber = phoneNumber;
+      }
+    }
+
+    const monthlyBills = await Customerdata.aggregate([
+      { $match: customerQuery },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$date" },
+            month: { $month: "$date" },
+          },
+          debit: {
+            $sum: {
+              $ifNull: ["$totalAmount", "$amount"],
+            },
+          },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          date: {
+            $dateFromParts: {
+              year: "$_id.year",
+              month: "$_id.month",
+              day: 1,
+            },
+          },
+          description: {
+            $concat: [
+              "Monthly bill total - ",
+              { $toString: "$_id.month" },
+              "/",
+              { $toString: "$_id.year" },
+            ],
+          },
+          folio: "",
+          debit: { $round: ["$debit", 2] },
+          credit: { $literal: 0 },
+        },
+      },
+    ]);
+
+    const payments = await SalesPaymentData.find(paymentQuery).lean();
+
+    const paymentEntries = payments.map((item) => ({
+      date: item.date,
+      description: item.description || "Payment received",
+      folio: item.folio || "",
+      debit: 0,
+      credit: Number(item.amount || 0),
+    }));
+
+    const entries = [...monthlyBills, ...paymentEntries].sort(
+      (a, b) => new Date(a.date) - new Date(b.date)
+    );
+
+    let balance = 0;
+
+    const ledger = entries.map((item) => {
+      balance += Number(item.debit || 0) - Number(item.credit || 0);
+
+      return {
+        ...item,
+        balance: Number(balance.toFixed(2)),
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Sales ledger fetched successfully",
+      data: ledger,
+    });
+  } catch (error) {
+    console.error("getSalesLedgerYearly error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching sales ledger",
+      error: error.message,
+    });
+  }
+};
+
+const walkingCustomer = async (req, res) => {
+  try {
+    const { search, page = 1, limit = 1000 } = req.query;
+
+    const pageNumber = parseInt(page, 10);
+    const pageSize = parseInt(limit, 10);
+    const skip = (pageNumber - 1) * pageSize;
+
+    const matchQuery = {
+      userType: "walkingCustomer",
+      $or: [
+        { userId: { $exists: false } },
+        { userId: null },
+        { userId: "" },
+      ],
+    };
+
+    if (search) {
+      matchQuery.clientName = { $regex: search, $options: "i" };
+    }
+
+    const walkingCustomers = await Customerdata.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: "$clientName",
+          clientName: { $first: "$clientName" },
+          billNo: { $first: "$billNo" },
+          
+        },
+      },
+      { $sort: { latestDate: -1 } },
+      { $skip: skip },
+      { $limit: pageSize },
+      {
+        $project: {
+          _id: 0,
+          clientName: 1,
+          billNo: 1,
+          
+        },
+      },
+    ]);
+
+    const totalResult = await Customerdata.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: "$clientName",
+        },
+      },
+      {
+        $count: "totalDocs",
+      },
+    ]);
+
+    const totalDocs = totalResult[0]?.totalDocs || 0;
+
+    return res.status(200).json({
+      message: "Walking customers fetched successfully.",
+      data: {
+        data: walkingCustomers,
+        page: {
+          page: pageNumber,
+          limit: pageSize,
+          totalDocs,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error in getWalkingCustomer API:", error);
+    res.status(500).json({
+      message: "Internal server error.",
+      error: error.message,
+    });
+  }
+};
 
 
 
 
-module.exports = { createUser, getCustomerbyId, getCustomer, getMaterialbyId,getMaterial, loginUser,Creatematerial,editMaterial, deleteMaterial, createCustomer, editCustomer, deleteCustomer,updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, getCombinedData };
+
+
+module.exports = { createUser, getCustomerbyId, getCustomer, getMaterialbyId,getMaterial, loginUser,Creatematerial,editMaterial, deleteMaterial, createCustomer, editCustomer, deleteCustomer,updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, getCombinedData, receiveSalesPayment, getSalesLedgerYearly, walkingCustomer };
