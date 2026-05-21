@@ -1477,6 +1477,9 @@ const getSalesLedgerYearly = async (req, res) => {
               $ifNull: ["$totalAmount", "$amount"],
             },
           },
+          billNumbers: {
+            $addToSet: "$billNo",
+          },
         },
       },
       {
@@ -1498,6 +1501,30 @@ const getSalesLedgerYearly = async (req, res) => {
             ],
           },
           folio: "",
+          billNo: {
+            $reduce: {
+              input: {
+                $filter: {
+                  input: "$billNumbers",
+                  as: "billNumber",
+                  cond: {
+                    $and: [
+                      { $ne: ["$$billNumber", null] },
+                      { $ne: ["$$billNumber", ""] },
+                    ],
+                  },
+                },
+              },
+              initialValue: "",
+              in: {
+                $cond: [
+                  { $eq: ["$$value", ""] },
+                  "$$this",
+                  { $concat: ["$$value", ", ", "$$this"] },
+                ],
+              },
+            },
+          },
           debit: { $round: ["$debit", 2] },
           credit: { $literal: 0 },
           entryType: { $literal: "bill" },
@@ -1511,6 +1538,7 @@ const getSalesLedgerYearly = async (req, res) => {
       date: item.date,
       description: item.description || "Payment received",
       folio: item.folio || "",
+      billNo: item.billNo || "",
       debit: 0,
       credit: Number(item.amount || 0),
       entryType: "payment",
@@ -1532,6 +1560,7 @@ const getSalesLedgerYearly = async (req, res) => {
       date: startDate,
       description: "Opening balance",
       folio: "",
+      billNo: billNo || "",
       debit: 0,
       credit: 0,
       balance: openingBalance,
@@ -1559,6 +1588,7 @@ const getSalesLedgerYearly = async (req, res) => {
       date: endDate,
       description: "Final total",
       folio: "",
+      billNo: billNo || "",
       debit: Number(totalDebit.toFixed(2)),
       credit: Number(totalCredit.toFixed(2)),
       balance: finalBalance,
