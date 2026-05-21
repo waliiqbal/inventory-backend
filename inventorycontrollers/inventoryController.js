@@ -1342,7 +1342,7 @@ const receiveSalesPayment = async (req, res) => {
 
 const getSalesLedgerYearly = async (req, res) => {
   try {
-    const { year, userType, userId, phoneNumber, billNo } = req.query;
+    const { year, month, userType, userId, phoneNumber, billNo } = req.query;
 
     if (!year || !userType) {
       return res.status(400).json({
@@ -1351,8 +1351,45 @@ const getSalesLedgerYearly = async (req, res) => {
       });
     }
 
-    const startDate = new Date(Date.UTC(Number(year), 0, 1));
-    const endDate = new Date(Date.UTC(Number(year) + 1, 0, 1));
+    const yearNumber = Number(year);
+    if (!Number.isInteger(yearNumber)) {
+      return res.status(400).json({
+        success: false,
+        message: "year must be a valid number",
+      });
+    }
+
+    const monthNames = {
+      january: 1,
+      february: 2,
+      march: 3,
+      april: 4,
+      may: 5,
+      june: 6,
+      july: 7,
+      august: 8,
+      september: 9,
+      october: 10,
+      november: 11,
+      december: 12,
+    };
+
+    const normalizedMonth = month ? String(month).trim().toLowerCase() : "";
+    const monthNumber = normalizedMonth
+      ? monthNames[normalizedMonth] || Number(normalizedMonth)
+      : null;
+
+    if (month && (!Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12)) {
+      return res.status(400).json({
+        success: false,
+        message: "month must be a valid month number or name",
+      });
+    }
+
+    const startDate = new Date(Date.UTC(yearNumber, 0, 1));
+    const endDate = monthNumber
+      ? new Date(Date.UTC(yearNumber, monthNumber, 1))
+      : new Date(Date.UTC(yearNumber + 1, 0, 1));
 
     const customerQuery = {
       userType,
@@ -1365,6 +1402,13 @@ const getSalesLedgerYearly = async (req, res) => {
     };
 
     if (userType === "specificCustomer") {
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: "userId is required for specific customer",
+        });
+      }
+
       customerQuery.userId = userId;
       paymentQuery.userId = userId;
     }
@@ -1376,9 +1420,49 @@ const getSalesLedgerYearly = async (req, res) => {
       }
 
       if (phoneNumber) {
+        customerQuery.phoneNumber = phoneNumber;
         paymentQuery.phoneNumber = phoneNumber;
       }
     }
+
+    const openingCustomerQuery = {
+      ...customerQuery,
+      date: { $lt: startDate },
+    };
+
+    const openingPaymentQuery = {
+      ...paymentQuery,
+      date: { $lt: startDate },
+    };
+
+    const [openingBills, openingPayments] = await Promise.all([
+      Customerdata.aggregate([
+        { $match: openingCustomerQuery },
+        {
+          $group: {
+            _id: null,
+            debit: {
+              $sum: {
+                $ifNull: ["$totalAmount", "$amount"],
+              },
+            },
+          },
+        },
+      ]),
+      SalesPaymentData.aggregate([
+        { $match: openingPaymentQuery },
+        {
+          $group: {
+            _id: null,
+            credit: { $sum: "$amount" },
+          },
+        },
+      ]),
+    ]);
+
+    const openingDebit = Number(openingBills[0]?.debit || 0);
+    const openingCredit = Number(openingPayments[0]?.credit || 0);
+    const openingBalance = Number((openingDebit - openingCredit).toFixed(2));
 
     const monthlyBills = await Customerdata.aggregate([
       { $match: customerQuery },
@@ -1416,6 +1500,7 @@ const getSalesLedgerYearly = async (req, res) => {
           folio: "",
           debit: { $round: ["$debit", 2] },
           credit: { $literal: 0 },
+          entryType: { $literal: "bill" },
         },
       },
     ]);
@@ -1428,27 +1513,70 @@ const getSalesLedgerYearly = async (req, res) => {
       folio: item.folio || "",
       debit: 0,
       credit: Number(item.amount || 0),
+      entryType: "payment",
     }));
 
     const entries = [...monthlyBills, ...paymentEntries].sort(
-      (a, b) => new Date(a.date) - new Date(b.date)
+      (a, b) => {
+        const dateDifference = new Date(a.date) - new Date(b.date);
+        if (dateDifference !== 0) return dateDifference;
+        return String(a.entryType || "").localeCompare(String(b.entryType || ""));
+      }
     );
 
-    let balance = 0;
+    let balance = openingBalance;
+    let totalDebit = 0;
+    let totalCredit = 0;
+
+    const openingEntry = {
+      date: startDate,
+      description: "Opening balance",
+      folio: "",
+      debit: 0,
+      credit: 0,
+      balance: openingBalance,
+      entryType: "opening",
+    };
 
     const ledger = entries.map((item) => {
-      balance += Number(item.debit || 0) - Number(item.credit || 0);
+      const debit = Number(item.debit || 0);
+      const credit = Number(item.credit || 0);
+
+      totalDebit += debit;
+      totalCredit += credit;
+      balance += debit - credit;
 
       return {
         ...item,
+        debit: Number(debit.toFixed(2)),
+        credit: Number(credit.toFixed(2)),
         balance: Number(balance.toFixed(2)),
       };
     });
 
+    const finalBalance = Number(balance.toFixed(2));
+    const finalEntry = {
+      date: endDate,
+      description: "Final total",
+      folio: "",
+      debit: Number(totalDebit.toFixed(2)),
+      credit: Number(totalCredit.toFixed(2)),
+      balance: finalBalance,
+      entryType: "total",
+    };
+
     return res.status(200).json({
       success: true,
       message: "Sales ledger fetched successfully",
-      data: ledger,
+      data: [openingEntry, ...ledger, finalEntry],
+      summary: {
+        year: yearNumber,
+        month: monthNumber || null,
+        openingBalance,
+        totalDebit: Number(totalDebit.toFixed(2)),
+        totalCredit: Number(totalCredit.toFixed(2)),
+        finalBalance,
+      },
     });
   } catch (error) {
     console.error("getSalesLedgerYearly error:", error);
