@@ -1340,6 +1340,125 @@ const receiveSalesPayment = async (req, res) => {
   }
 };
 
+const deleteSalesPayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid payment id is required",
+      });
+    }
+
+    const deletedPayment = await SalesPaymentData.findByIdAndDelete(id);
+
+    if (!deletedPayment) {
+      return res.status(404).json({
+        success: false,
+        message: "Sales payment not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Sales payment deleted successfully",
+      data: deletedPayment,
+    });
+  } catch (error) {
+    console.error("deleteSalesPayment error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error deleting sales payment",
+      error: error.message,
+    });
+  }
+};
+
+const editSalesPayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      userId,
+      userType,
+      clientName,
+      phoneNumber,
+      billNo,
+      folio,
+      date,
+      amount,
+      paymentMethod,
+      description,
+    } = req.body;
+
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid payment id is required",
+      });
+    }
+
+    if (amount !== undefined && Number(amount) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount must be greater than 0",
+      });
+    }
+
+    if (userType === "specificCustomer" && !userId) {
+      return res.status(400).json({
+        success: false,
+        message: "userId is required for specific customer",
+      });
+    }
+
+    if (userType === "walkingCustomer" && !phoneNumber && !billNo) {
+      return res.status(400).json({
+        success: false,
+        message: "phoneNumber or billNo is required for walking customer",
+      });
+    }
+
+    const updateData = {};
+    if (userId !== undefined) updateData.userId = userId;
+    if (userType !== undefined) updateData.userType = userType;
+    if (clientName !== undefined) updateData.clientName = clientName;
+    if (phoneNumber !== undefined) updateData.phoneNumber = phoneNumber;
+    if (billNo !== undefined) updateData.billNo = billNo;
+    if (folio !== undefined) updateData.folio = folio;
+    if (date !== undefined) updateData.date = date;
+    if (amount !== undefined) updateData.amount = Number(amount);
+    if (paymentMethod !== undefined) updateData.paymentMethod = paymentMethod;
+    if (description !== undefined) updateData.description = description;
+
+    const updatedPayment = await SalesPaymentData.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedPayment) {
+      return res.status(404).json({
+        success: false,
+        message: "Sales payment not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Sales payment updated successfully",
+      data: updatedPayment,
+    });
+  } catch (error) {
+    console.error("editSalesPayment error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error updating sales payment",
+      error: error.message,
+    });
+  }
+};
+
 const getSalesLedgerYearly = async (req, res) => {
   try {
     const { year, month, userType, userId, phoneNumber, billNo } = req.query;
@@ -1525,6 +1644,7 @@ const getSalesLedgerYearly = async (req, res) => {
               },
             },
           },
+          paymentId: "",
           debit: { $round: ["$debit", 2] },
           credit: { $literal: 0 },
           entryType: { $literal: "bill" },
@@ -1539,6 +1659,7 @@ const getSalesLedgerYearly = async (req, res) => {
       description: item.description || "Payment received",
       folio: item.folio || "",
       billNo: item.billNo || "",
+      paymentId: item._id,
       debit: 0,
       credit: Number(item.amount || 0),
       entryType: "payment",
@@ -1561,6 +1682,7 @@ const getSalesLedgerYearly = async (req, res) => {
       description: "Opening balance",
       folio: "",
       billNo: billNo || "",
+      paymentId: "",
       debit: 0,
       credit: 0,
       balance: openingBalance,
@@ -1589,6 +1711,7 @@ const getSalesLedgerYearly = async (req, res) => {
       description: "Final total",
       folio: "",
       billNo: billNo || "",
+      paymentId: "",
       debit: Number(totalDebit.toFixed(2)),
       credit: Number(totalCredit.toFixed(2)),
       balance: finalBalance,
@@ -1701,4 +1824,4 @@ const walkingCustomer = async (req, res) => {
 
 
 
-module.exports = { createUser, getCustomerbyId, getCustomer, getMaterialbyId,getMaterial, loginUser,Creatematerial,editMaterial, deleteMaterial, createCustomer, editCustomer, deleteCustomer,updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, getCombinedData, receiveSalesPayment, getSalesLedgerYearly, walkingCustomer };
+module.exports = { createUser, getCustomerbyId, getCustomer, getMaterialbyId,getMaterial, loginUser,Creatematerial,editMaterial, deleteMaterial, createCustomer, editCustomer, deleteCustomer,updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, getCombinedData, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, walkingCustomer };

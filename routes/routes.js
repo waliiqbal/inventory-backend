@@ -2,7 +2,7 @@ const cors = require("cors");
 const jwt = require('jsonwebtoken');
 const {jwtAuthMiddleware,} = require('./../jwt');
 
-const {  createUser,loginUser, getCombinedData, getCustomer, getCustomerbyId, getMaterialbyId, Creatematerial,editMaterial, deleteMaterial, createCustomer,editCustomer, deleteCustomer,getMaterial, updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, receiveSalesPayment, getSalesLedgerYearly, walkingCustomer }
+const {  createUser,loginUser, getCombinedData, getCustomer, getCustomerbyId, getMaterialbyId, Creatematerial,editMaterial, deleteMaterial, createCustomer,editCustomer, deleteCustomer,getMaterial, updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, walkingCustomer }
  = require("../inventorycontrollers/inventoryController");
 
 const CustomRoutes = (http, express) => {
@@ -46,6 +46,8 @@ http.patch("/inventoryApp/EditCategoryCustomer", EditCategoryCustomer);
 http.get("/inventoryApp/getSalesLedgerYearly", getSalesLedgerYearly);
 
 http.post("/inventoryApp/receiveSalesPayment", receiveSalesPayment);
+http.patch("/inventoryApp/editSalesPayment/:id", editSalesPayment);
+http.delete("/inventoryApp/deleteSalesPayment/:id", deleteSalesPayment);
 http.get("/inventoryApp/walkingCustomer", walkingCustomer);
 }
   // http.post("/costingapp/insertFormData", insertFormData);
