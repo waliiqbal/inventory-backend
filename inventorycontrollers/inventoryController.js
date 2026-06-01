@@ -26,6 +26,21 @@ const CategoryCustomerdata = mongoose.model("CategoryCustomer", CategoryCustomer
 const { salesPaymentSchema } = require("../schema/salesPayment");
 const SalesPaymentData = mongoose.model("SalesPayment", salesPaymentSchema);
 
+const escapeRegex = (text = "") =>
+  String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const makeNameRegex = (name = "") => {
+  const cleaned = String(name).trim();
+
+  return cleaned
+    .split("")
+    .map((ch) => {
+      if (/[a-zA-Z0-9]/.test(ch)) return escapeRegex(ch);
+      return "[\\s\\.\\-&_/]*";
+    })
+    .join("[\\s\\.\\-&_/]*");
+};
+
 
 
 const createUser = async (req, res) => {
@@ -1487,7 +1502,7 @@ const editSalesPayment = async (req, res) => {
 
 const getSalesLedgerYearly = async (req, res) => {
   try {
-    const { year, month, userType, userId, phoneNumber, billNo } = req.query;
+    const { year, month, userType, userId, phoneNumber, billNo, userName, clientName } = req.query;
 
     if (!year || !userType) {
       return res.status(400).json({
@@ -1559,15 +1574,17 @@ const getSalesLedgerYearly = async (req, res) => {
     }
 
     if (userType === "walkingCustomer") {
-      if (billNo) {
-        customerQuery.billNo = billNo;
-        paymentQuery.billNo = billNo;
-      }
+      // if (billNo) {
+      //   customerQuery.billNo = billNo;
+      //   paymentQuery.billNo = billNo;
+      // }
 
-      if (phoneNumber) {
-        customerQuery.phoneNumber = phoneNumber;
-        paymentQuery.phoneNumber = phoneNumber;
-      }
+       const walkingCustomerName = clientName || userName;
+       if (walkingCustomerName) {
+         const nameRegex = makeNameRegex(walkingCustomerName);
+         customerQuery.clientName = { $regex: nameRegex, $options: "i" };
+         paymentQuery.clientName = { $regex: nameRegex, $options: "i" };
+       }
     }
 
     const openingCustomerQuery = {
