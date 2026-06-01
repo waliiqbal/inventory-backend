@@ -840,9 +840,13 @@ const EditCategoryCustomer = async (req, res) => {
 };
 const getwalkingcustomer = async (req, res) => {
   try {
-    const { month, search, page = 1, limit = 10 } = req.query;
+    const { month, search, groupby_name, page = 1, limit = 10 } = req.query;
     const pageNumber = parseInt(page);
     const pageSize = parseInt(limit);
+    const groupByName = groupby_name !== undefined && !["false", "0", "no"].includes(
+      String(groupby_name).toLowerCase()
+    );
+    const groupByField = groupByName ? "$clientName" : "$billNo";
 
     const matchCondition = { userType: "walkingCustomer" };
 
@@ -854,21 +858,43 @@ const getwalkingcustomer = async (req, res) => {
       matchCondition.clientName = { $regex: search, $options: "i" };
     }
 
-    const totalDocs = await Customerdata.countDocuments(matchCondition);
+    const totalResult = await Customerdata.aggregate([
+      { $match: matchCondition },
+      {
+        $group: {
+          _id: groupByField,
+        },
+      },
+      {
+        $count: "totalDocs",
+      },
+    ]);
+
+    const totalDocs = totalResult[0]?.totalDocs || 0;
 
     const walkingCustomer = await Customerdata.aggregate([
       { $match: matchCondition },
       {
         $group: {
-          _id: "$billNo",
-          clientName: { $first: "$clientName" }
+          _id: groupByField,
+          clientName: { $first: "$clientName" },
+          phoneNumber: { $first: "$phoneNumber" },
+          billNo: { $first: "$billNo" }
         }
       },
       {
         $project: {
           _id: 0,
-          phoneNumber: "$_id",
-          clientName: 1
+          phoneNumber: {
+            $cond: [groupByName, "$phoneNumber", "$_id"]
+          },
+          billNo: "$billNo",
+          clientName: {
+            $cond: [groupByName, "$_id", "$clientName"]
+          },
+          groupBy: {
+            $literal: groupByName ? "clientName" : "billNo"
+          }
         }
       },
       { $skip: (pageNumber - 1) * pageSize },
