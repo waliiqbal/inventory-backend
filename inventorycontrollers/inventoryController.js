@@ -1487,7 +1487,7 @@ const editSalesPayment = async (req, res) => {
 
 const getSalesLedgerYearly = async (req, res) => {
   try {
-    const { year, month, userType, userId, phoneNumber, billNo } = req.query;
+    const { year, month, userType, userId, phoneNumber, billNo, userName } = req.query;
 
     if (!year || !userType) {
       return res.status(400).json({
@@ -1559,14 +1559,14 @@ const getSalesLedgerYearly = async (req, res) => {
     }
 
     if (userType === "walkingCustomer") {
-      if (billNo) {
-        customerQuery.billNo = billNo;
-        paymentQuery.billNo = billNo;
-      }
+      // if (billNo) {
+      //   customerQuery.billNo = billNo;
+      //   paymentQuery.billNo = billNo;
+      // }
 
-      if (phoneNumber) {
-        customerQuery.phoneNumber = phoneNumber;
-        paymentQuery.phoneNumber = phoneNumber;
+      if (userName) {
+        customerQuery.clientName = userName;
+        paymentQuery.clientName = userName;
       }
     }
 
