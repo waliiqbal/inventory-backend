@@ -1487,17 +1487,33 @@ const editSalesPayment = async (req, res) => {
 
 const getSalesLedgerYearly = async (req, res) => {
   try {
-    const { year, month, userType, userId, phoneNumber, billNo, userName } = req.query;
+    const {
+      year,
+      month,
+      fromMonth,
+      toMonth,
+      startMonth,
+      endMonth,
+      monthFrom,
+      monthTo,
+      from_month,
+      to_month,
+      userType,
+      userId,
+      phoneNumber,
+      billNo,
+      userName,
+    } = req.query;
 
-    if (!year || !userType) {
+    if (!userType) {
       return res.status(400).json({
         success: false,
-        message: "year and userType are required",
+        message: "userType is required",
       });
     }
 
-    const yearNumber = Number(year);
-    if (!Number.isInteger(yearNumber)) {
+    const yearNumber = year ? Number(year) : null;
+    if (year && !Number.isInteger(yearNumber)) {
       return res.status(400).json({
         success: false,
         message: "year must be a valid number",
@@ -1507,34 +1523,127 @@ const getSalesLedgerYearly = async (req, res) => {
     const monthNames = {
       january: 1,
       february: 2,
+      feb: 2,
       march: 3,
+      mar: 3,
       april: 4,
+      apr: 4,
       may: 5,
       june: 6,
+      jun: 6,
       july: 7,
+      jul: 7,
       august: 8,
+      aug: 8,
       september: 9,
+      sep: 9,
+      sept: 9,
       october: 10,
+      oct: 10,
       november: 11,
+      nov: 11,
       december: 12,
+      dec: 12,
     };
 
-    const normalizedMonth = month ? String(month).trim().toLowerCase() : "";
-    const monthNumber = normalizedMonth
-      ? monthNames[normalizedMonth] || Number(normalizedMonth)
-      : null;
+    const parseMonthYear = (value, defaultYear = null) => {
+      if (!value) return null;
 
-    if (month && (!Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12)) {
+      const normalizedValue = String(value)
+        .trim()
+        .toLowerCase()
+        .replace(/[/_]/g, "-")
+        .replace(/\s+/g, "-");
+
+      const parts = normalizedValue.split("-").filter(Boolean);
+      let parsedYear = defaultYear;
+      let monthValue = null;
+
+      for (const part of parts) {
+        if (/^\d{4}$/.test(part)) {
+          parsedYear = Number(part);
+          continue;
+        }
+
+        if (!monthValue) {
+          monthValue = monthNames[part] || Number(part);
+        }
+      }
+
+      if (!Number.isInteger(monthValue) || monthValue < 1 || monthValue > 12) {
+        return null;
+      }
+
+      if (!Number.isInteger(parsedYear)) {
+        return null;
+      }
+
+      return {
+        year: parsedYear,
+        month: monthValue,
+      };
+    };
+
+    const selectedFromMonth = fromMonth || startMonth || monthFrom || from_month;
+    const selectedToMonth = toMonth || endMonth || monthTo || to_month;
+    let startDate;
+    let endDate;
+    let startMonthInfo = null;
+    let endMonthInfo = null;
+
+    if (selectedFromMonth && selectedToMonth) {
+      startMonthInfo = parseMonthYear(selectedFromMonth, yearNumber);
+      endMonthInfo = parseMonthYear(selectedToMonth, yearNumber);
+    } else if (selectedFromMonth || selectedToMonth) {
+      const selectedMonthInfo = parseMonthYear(selectedFromMonth || selectedToMonth, yearNumber);
+      if (selectedMonthInfo) {
+        startMonthInfo = {
+          year: selectedMonthInfo.year,
+          month: 1,
+        };
+        endMonthInfo = selectedMonthInfo;
+      }
+    } else if (month) {
+      const selectedMonthInfo = parseMonthYear(month, yearNumber);
+      if (!selectedMonthInfo) {
+        return res.status(400).json({
+          success: false,
+          message: "month must be a valid month number/name, or a month-year value like jan-2025",
+        });
+      }
+
+      startMonthInfo = {
+        year: selectedMonthInfo.year,
+        month: 1,
+      };
+      endMonthInfo = selectedMonthInfo;
+    } else if (Number.isInteger(yearNumber)) {
+      startMonthInfo = {
+        year: yearNumber,
+        month: 1,
+      };
+      endMonthInfo = {
+        year: yearNumber,
+        month: 12,
+      };
+    }
+
+    if (!startMonthInfo || !endMonthInfo) {
       return res.status(400).json({
         success: false,
-        message: "month must be a valid month number or name",
+        message: "year is required unless month range includes year, for example fromMonth=jan-2025&toMonth=march-2025",
       });
     }
 
-    const startDate = new Date(Date.UTC(yearNumber, 0, 1));
-    const endDate = monthNumber
-      ? new Date(Date.UTC(yearNumber, monthNumber, 1))
-      : new Date(Date.UTC(yearNumber + 1, 0, 1));
+    startDate = new Date(Date.UTC(startMonthInfo.year, startMonthInfo.month - 1, 1));
+    endDate = new Date(Date.UTC(endMonthInfo.year, endMonthInfo.month, 1));
+
+    if (startDate >= endDate) {
+      return res.status(400).json({
+        success: false,
+        message: "from month must be before or equal to to month",
+      });
+    }
 
     const customerQuery = {
       userType,
@@ -1749,11 +1858,13 @@ const getSalesLedgerYearly = async (req, res) => {
       message: "Sales ledger fetched successfully",
       data: [openingEntry, ...ledger, finalEntry],
       summary: {
-        year: yearNumber,
-        month: monthNumber || null,
+        year: yearNumber || startMonthInfo.year,
+        fromMonth: `${startMonthInfo.year}-${String(startMonthInfo.month).padStart(2, "0")}`,
+        toMonth: `${endMonthInfo.year}-${String(endMonthInfo.month).padStart(2, "0")}`,
         openingBalance,
         totalDebit: Number(totalDebit.toFixed(2)),
         totalCredit: Number(totalCredit.toFixed(2)),
+        closingBalance: finalBalance,
         finalBalance,
       },
     });
