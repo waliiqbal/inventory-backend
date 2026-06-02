@@ -1302,6 +1302,7 @@ const receiveSalesPayment = async (req, res) => {
       billNo,
       folio,
       date,
+      dueOnDate,
       amount,
       paymentMethod,
       description,
@@ -1343,6 +1344,7 @@ const receiveSalesPayment = async (req, res) => {
       billNo,
       folio,
       date,
+      dueOnDate,
       amount,
       paymentMethod: paymentMethod || "cash",
       description: description || "Payment received",
@@ -1412,6 +1414,7 @@ const editSalesPayment = async (req, res) => {
       billNo,
       folio,
       date,
+      dueOnDate,
       amount,
       paymentMethod,
       description,
@@ -1453,6 +1456,7 @@ const editSalesPayment = async (req, res) => {
     if (billNo !== undefined) updateData.billNo = billNo;
     if (folio !== undefined) updateData.folio = folio;
     if (date !== undefined) updateData.date = date;
+    if (dueOnDate !== undefined) updateData.dueOnDate = dueOnDate;
     if (amount !== undefined) updateData.amount = Number(amount);
     if (paymentMethod !== undefined) updateData.paymentMethod = paymentMethod;
     if (description !== undefined) updateData.description = description;
@@ -1780,6 +1784,7 @@ const getSalesLedgerYearly = async (req, res) => {
             },
           },
           paymentId: "",
+          dueOnDate: "",
           debit: { $round: ["$debit", 2] },
           credit: { $literal: 0 },
           entryType: { $literal: "bill" },
@@ -1795,6 +1800,7 @@ const getSalesLedgerYearly = async (req, res) => {
       folio: item.folio || "",
       billNo: item.billNo || "",
       paymentId: item._id,
+      dueOnDate: item.dueOnDate || "",
       debit: 0,
       credit: Number(item.amount || 0),
       entryType: "payment",
@@ -1818,6 +1824,7 @@ const getSalesLedgerYearly = async (req, res) => {
       folio: "",
       billNo: billNo || "",
       paymentId: "",
+      dueOnDate: "",
       debit: 0,
       credit: 0,
       balance: openingBalance,
@@ -1847,6 +1854,7 @@ const getSalesLedgerYearly = async (req, res) => {
       folio: "",
       billNo: billNo || "",
       paymentId: "",
+      dueOnDate: "",
       debit: Number(totalDebit.toFixed(2)),
       credit: Number(totalCredit.toFixed(2)),
       balance: finalBalance,

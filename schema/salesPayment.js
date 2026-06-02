@@ -37,6 +37,11 @@ const salesPaymentSchema = new mongoose.Schema({
     required: true,
   },
 
+  dueOnDate: {
+    type: Date,
+    required: false,
+  },
+
   amount: {
     type: Number,
     required: true,
