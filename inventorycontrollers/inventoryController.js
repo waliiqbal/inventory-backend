@@ -938,7 +938,8 @@ const getwalkingcustomer = async (req, res) => {
           _id: groupByField,
           clientName: { $first: "$clientName" },
           phoneNumber: { $first: "$phoneNumber" },
-          billNo: { $first: "$billNo" }
+          billNo: { $first: "$billNo" },
+          ref_no: { $max: "$ref_no" }
         }
       },
       {
@@ -948,6 +949,9 @@ const getwalkingcustomer = async (req, res) => {
             $cond: [groupByName, "$phoneNumber", "$_id"]
           },
           billNo: "$billNo",
+          ref_no: {
+            $ifNull: ["$ref_no", ""]
+          },
           clientName: {
             $cond: [groupByName, "$_id", "$clientName"]
           },
@@ -980,7 +984,7 @@ const getwalkingcustomer = async (req, res) => {
 
 const getCustomerdetails = async (req, res) => {
   try {
-    const { month, userType, userId, phoneNumber, billNo, product, page = 1, limit = 10 } = req.query;
+    const { month, userType, userId, phoneNumber, billNo, ref_no,  product, page = 1, limit = 10 } = req.query;
     const pageNumber = parseInt(page);
     const pageSize = parseInt(limit);
 
@@ -996,7 +1000,7 @@ const getCustomerdetails = async (req, res) => {
         query.userId = userId;
       }
     } else if (userType === "walkingCustomer") {
-      query.billNo = phoneNumber;
+      query.ref_no = ref_no;
       query.userType = "walkingCustomer";
     }
 
@@ -1357,6 +1361,7 @@ const receiveSalesPayment = async (req, res) => {
       userId,
       userType,
       clientName,
+      ref_no,
       phoneNumber,
       billNo,
       folio,
@@ -1388,10 +1393,10 @@ const receiveSalesPayment = async (req, res) => {
       });
     }
 
-    if (userType === "walkingCustomer" && !phoneNumber && !billNo) {
+    if (userType === "walkingCustomer" && !ref_no) {
       return res.status(400).json({
         success: false,
-        message: "phoneNumber or billNo is required for walking customer",
+        message: "ref_no is required for walking customer",
       });
     }
 
@@ -1399,6 +1404,7 @@ const receiveSalesPayment = async (req, res) => {
       userId,
       userType,
       clientName,
+      ref_no,
       phoneNumber,
       billNo,
       folio,
@@ -1469,6 +1475,7 @@ const editSalesPayment = async (req, res) => {
       userId,
       userType,
       clientName,
+      ref_no,
       phoneNumber,
       billNo,
       folio,
@@ -1500,10 +1507,10 @@ const editSalesPayment = async (req, res) => {
       });
     }
 
-    if (userType === "walkingCustomer" && !phoneNumber && !billNo) {
+    if (userType === "walkingCustomer" && !ref_no) {
       return res.status(400).json({
         success: false,
-        message: "phoneNumber or billNo is required for walking customer",
+        message: "ref_no is required for walking customer",
       });
     }
 
@@ -1511,6 +1518,7 @@ const editSalesPayment = async (req, res) => {
     if (userId !== undefined) updateData.userId = userId;
     if (userType !== undefined) updateData.userType = userType;
     if (clientName !== undefined) updateData.clientName = clientName;
+    if (ref_no !== undefined) updateData.ref_no = ref_no;
     if (phoneNumber !== undefined) updateData.phoneNumber = phoneNumber;
     if (billNo !== undefined) updateData.billNo = billNo;
     if (folio !== undefined) updateData.folio = folio;
@@ -1566,6 +1574,7 @@ const getSalesLedgerYearly = async (req, res) => {
       phoneNumber,
       billNo,
       userName,
+      ref_no,
     } = req.query;
 
     if (!userType) {
@@ -1736,7 +1745,10 @@ const getSalesLedgerYearly = async (req, res) => {
       //   paymentQuery.billNo = billNo;
       // }
 
-      if (userName) {
+      if (ref_no) {
+        customerQuery.ref_no = ref_no;
+        paymentQuery.ref_no = ref_no;
+      } else if (userName) {
         customerQuery.clientName = userName;
         paymentQuery.clientName = userName;
       }
@@ -1797,6 +1809,9 @@ const getSalesLedgerYearly = async (req, res) => {
           billNumbers: {
             $addToSet: "$billNo",
           },
+          refNumbers: {
+            $addToSet: "$ref_no",
+          },
         },
       },
       {
@@ -1844,6 +1859,30 @@ const getSalesLedgerYearly = async (req, res) => {
           },
           paymentId: "",
           dueOnDate: "",
+          ref_no: {
+            $reduce: {
+              input: {
+                $filter: {
+                  input: "$refNumbers",
+                  as: "refNumber",
+                  cond: {
+                    $and: [
+                      { $ne: ["$$refNumber", null] },
+                      { $ne: ["$$refNumber", ""] },
+                    ],
+                  },
+                },
+              },
+              initialValue: "",
+              in: {
+                $cond: [
+                  { $eq: ["$$value", ""] },
+                  "$$this",
+                  { $concat: ["$$value", ", ", "$$this"] },
+                ],
+              },
+            },
+          },
           debit: { $round: ["$debit", 2] },
           credit: { $literal: 0 },
           entryType: { $literal: "bill" },
@@ -1860,6 +1899,7 @@ const getSalesLedgerYearly = async (req, res) => {
       billNo: item.billNo || "",
       paymentId: item._id,
       dueOnDate: item.dueOnDate || "",
+      ref_no: item.ref_no || "",
       debit: 0,
       credit: Number(item.amount || 0),
       entryType: "payment",
@@ -1884,6 +1924,7 @@ const getSalesLedgerYearly = async (req, res) => {
       billNo: billNo || "",
       paymentId: "",
       dueOnDate: "",
+      ref_no: ref_no || "",
       debit: 0,
       credit: 0,
       balance: openingBalance,
@@ -1914,6 +1955,7 @@ const getSalesLedgerYearly = async (req, res) => {
       billNo: billNo || "",
       paymentId: "",
       dueOnDate: "",
+      ref_no: ref_no || "",
       debit: Number(totalDebit.toFixed(2)),
       credit: Number(totalCredit.toFixed(2)),
       balance: finalBalance,
@@ -1972,7 +2014,7 @@ const walkingCustomer = async (req, res) => {
         $group: {
           _id: "$clientName",
           clientName: { $first: "$clientName" },
-          billNo: { $first: "$billNo" },
+          ref_no: { $first: "$ref_no" },
           
         },
       },
@@ -1983,7 +2025,7 @@ const walkingCustomer = async (req, res) => {
         $project: {
           _id: 0,
           clientName: 1,
-          billNo: 1,
+          ref_no: 1,
           
         },
       },

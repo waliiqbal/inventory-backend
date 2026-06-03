@@ -17,6 +17,12 @@ const salesPaymentSchema = new mongoose.Schema({
     required: false, // snapshot only
   },
 
+  ref_no: {
+    type: String,
+    required: false,
+    index: true,
+  },
+
   phoneNumber: {
     type: String,
     required: false,
@@ -62,6 +68,7 @@ const salesPaymentSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 salesPaymentSchema.index({ userId: 1, date: 1 });
+salesPaymentSchema.index({ ref_no: 1, date: 1 });
 salesPaymentSchema.index({ phoneNumber: 1, date: 1 });
 salesPaymentSchema.index({ billNo: 1 });
 
