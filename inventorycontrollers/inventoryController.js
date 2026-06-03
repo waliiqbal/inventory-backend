@@ -26,6 +26,45 @@ const CategoryCustomerdata = mongoose.model("CategoryCustomer", CategoryCustomer
 const { salesPaymentSchema } = require("../schema/salesPayment");
 const SalesPaymentData = mongoose.model("SalesPayment", salesPaymentSchema);
 
+const escapeRegex = (text = "") =>
+  String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const generateWalkingCustomerRefNo = async () => {
+  const latestRef = await Customerdata.aggregate([
+    {
+      $match: {
+        userType: "walkingCustomer",
+        ref_no: { $regex: /^WC-\d+$/ },
+      },
+    },
+    {
+      $project: {
+        refNumber: {
+          $toInt: {
+            $arrayElemAt: [{ $split: ["$ref_no", "-"] }, 1],
+          },
+        },
+      },
+    },
+    { $sort: { refNumber: -1 } },
+    { $limit: 1 },
+  ]);
+
+  let nextNumber = latestRef[0]?.refNumber || 0;
+
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    nextNumber += 1;
+    const refNo = `WC-${String(nextNumber).padStart(4, "0")}`;
+    const refExists = await Customerdata.exists({ ref_no: refNo });
+
+    if (!refExists) {
+      return refNo;
+    }
+  }
+
+  throw new Error("Unable to generate unique walking customer ref_no");
+};
+
 
 
 const createUser = async (req, res) => {
@@ -587,7 +626,7 @@ const deleteMaterial = async (req, res) => {
 
 const createCustomer = async (req, res) => {
   try {
-    let { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, billNo, status, product, userId, userType, phoneNumber, ratio,additionalRate, extraRate, extraAmount, totalAmount, description  } = req.body;
+    let { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, billNo, status, product, userId, userType, phoneNumber, ratio,additionalRate, extraRate, extraAmount, totalAmount, description, ref_no  } = req.body;
 
     if (!date || !clientName || !quality || !dcNumber  || !rate || !amount || !product) {
       return res.status(400).json({ error: 'All fields are required: date, clientName, quality, dcNumber, weightPure, weightMixing, rate, amount, billNo' });
@@ -628,10 +667,29 @@ const createCustomer = async (req, res) => {
     }
 
     if (extraRate > 0) {
-  additionalRate = true;
-} else {
-  additionalRate = false;
-}
+      additionalRate = true;
+    } else {
+      additionalRate = false;
+    }
+
+    if (userType === "walkingCustomer") {
+      if (ref_no) {
+        ref_no = String(ref_no).trim();
+      }
+
+      if (!ref_no) {
+        const existingWalkingCustomer = await Customerdata.findOne({
+          userType: "walkingCustomer",
+          clientName: {
+            $regex: `^${escapeRegex(String(clientName).trim())}$`,
+            $options: "i",
+          },
+          ref_no: { $exists: true, $nin: [null, ""] },
+        }).sort({ createdAt: -1 }).lean();
+
+        ref_no = existingWalkingCustomer?.ref_no || await generateWalkingCustomerRefNo();
+      }
+    }
 
 
     const newCustomer = new Customerdata({
@@ -650,6 +708,7 @@ const createCustomer = async (req, res) => {
       userId,
       userType,
       phoneNumber,
+      ref_no,
       ratio,
       additionalRate,
       extraRate,

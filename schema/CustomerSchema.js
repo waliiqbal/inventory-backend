@@ -47,6 +47,10 @@ const CustomerSchema = new mongoose.Schema({
         default: "pending",
         
     },
+    ref_no: { 
+        type: String, 
+        index: true 
+    },
     product: {
         type: String,
         required: true 
