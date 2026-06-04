@@ -1748,10 +1748,7 @@ const getSalesLedgerYearly = async (req, res) => {
       if (ref_no) {
         customerQuery.ref_no = ref_no;
         paymentQuery.ref_no = ref_no;
-      } else if (userName) {
-        customerQuery.clientName = userName;
-        paymentQuery.clientName = userName;
-      }
+      } 
     }
 
     const openingCustomerQuery = {
