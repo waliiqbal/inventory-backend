@@ -933,15 +933,19 @@ const getwalkingcustomer = async (req, res) => {
 
     const walkingCustomer = await Customerdata.aggregate([
       { $match: matchCondition },
+      { $sort: { createdAt: -1, date: -1, _id: -1 } },
       {
         $group: {
           _id: groupByField,
           clientName: { $first: "$clientName" },
           phoneNumber: { $first: "$phoneNumber" },
           billNo: { $first: "$billNo" },
-          ref_no: { $max: "$ref_no" }
+          ref_no: { $max: "$ref_no" },
+          latestCreatedAt: { $max: "$createdAt" },
+          latestDate: { $max: "$date" }
         }
       },
+      { $sort: { latestCreatedAt: -1, latestDate: -1 } },
       {
         $project: {
           _id: 0,
@@ -991,19 +995,27 @@ const getCustomerdetails = async (req, res) => {
     let query = {};
 
     if (userType === "specificCustomer") {
-      if (billNo) {
+      if (product === "mergeBill") {
         query.$or = [
           { userId: userId },
-          { billNo: billNo }
+          { ref_no: ref_no }
         ];
+        
       } else {
         query.userId = userId;
       }
     } else if (userType === "walkingCustomer") {
-      query.ref_no = ref_no;
-      query.userType = "walkingCustomer";
+      if (product === "mergeBill") {
+         query.$or = [
+          { userId: userId },
+          { ref_no: ref_no }
+        ];
+      } else {
+        query.ref_no = ref_no;
+      }
+      
+    
     }
-
     if (month) {
       const [year, monthValue] = month.split("-").map(Number);
       const startDate = new Date(Date.UTC(year, monthValue - 1, 1));
@@ -1109,6 +1121,7 @@ const getCustomerdetails = async (req, res) => {
     res.status(200).json({
       message: "Customer details fetched successfully.",
       data: {
+        rxtra: query,
         data: customerData,
         billNo: billSummary,
         materialInfo: materialInfo,
