@@ -1574,6 +1574,7 @@ const getSalesLedgerYearly = async (req, res) => {
     const {
       year,
       month,
+      product,
       fromMonth,
       toMonth,
       startMonth,
@@ -1740,16 +1741,46 @@ const getSalesLedgerYearly = async (req, res) => {
       date: { $gte: startDate, $lt: endDate },
     };
 
+    const applyMergeBillQuery = (query) => {
+      const mergeConditions = [];
+
+      if (userId) {
+        mergeConditions.push({ userId });
+      }
+
+      if (ref_no) {
+        mergeConditions.push({ ref_no });
+      }
+
+      if (mergeConditions.length === 0) {
+        return false;
+      }
+
+      delete query.userType;
+      query.$or = mergeConditions;
+      return true;
+    };
+
     if (userType === "specificCustomer") {
-      if (!userId) {
+      if (product === "mergeBill") {
+        const hasMergeBillFilter = applyMergeBillQuery(customerQuery);
+        applyMergeBillQuery(paymentQuery);
+
+        if (!hasMergeBillFilter) {
+          return res.status(400).json({
+            success: false,
+            message: "userId or ref_no is required for mergeBill ledger",
+          });
+        }
+      } else if (!userId) {
         return res.status(400).json({
           success: false,
           message: "userId is required for specific customer",
         });
+      } else {
+        customerQuery.userId = userId;
+        paymentQuery.userId = userId;
       }
-
-      customerQuery.userId = userId;
-      paymentQuery.userId = userId;
     }
 
     if (userType === "walkingCustomer") {
@@ -1758,7 +1789,17 @@ const getSalesLedgerYearly = async (req, res) => {
       //   paymentQuery.billNo = billNo;
       // }
 
-      if (ref_no) {
+      if (product === "mergeBill") {
+        const hasMergeBillFilter = applyMergeBillQuery(customerQuery);
+        applyMergeBillQuery(paymentQuery);
+
+        if (!hasMergeBillFilter) {
+          return res.status(400).json({
+            success: false,
+            message: "userId or ref_no is required for mergeBill ledger",
+          });
+        }
+      } else if (ref_no) {
         customerQuery.ref_no = ref_no;
         paymentQuery.ref_no = ref_no;
       } 
