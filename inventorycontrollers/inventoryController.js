@@ -988,39 +988,112 @@ const getwalkingcustomer = async (req, res) => {
 
 const getCustomerdetails = async (req, res) => {
   try {
-    const { month, userType, userId, phoneNumber, billNo, ref_no,  product, page = 1, limit = 10 } = req.query;
+    const {
+      month,
+      fromMonth,
+      toMonth,
+      startMonth,
+      endMonth,
+      monthFrom,
+      monthTo,
+      from_month,
+      to_month,
+      userType,
+      userId,
+      phoneNumber,
+      billNo,
+      ref_no,
+      product,
+      page = 1,
+      limit = 10
+    } = req.query;
     const pageNumber = parseInt(page);
     const pageSize = parseInt(limit);
 
     let query = {};
+    let startDate = null;
+    let endDate = null;
+    let selectedMonth = month;
+
+    const parseMonthDate = (value) => {
+      if (!value) return null;
+
+      const [year, monthValue] = String(value).split("-").map(Number);
+      if (!year || !monthValue || isNaN(year) || isNaN(monthValue) || monthValue > 12 || monthValue < 1) {
+        return null;
+      }
+
+      return { year, monthValue };
+    };
+
+    const selectedFromMonth = fromMonth || startMonth || monthFrom || from_month;
+    const selectedToMonth = toMonth || endMonth || monthTo || to_month;
+
+    if (selectedFromMonth || selectedToMonth) {
+      const fromInfo = parseMonthDate(selectedFromMonth || selectedToMonth);
+      const toInfo = parseMonthDate(selectedToMonth || selectedFromMonth);
+
+      if (!fromInfo || !toInfo) {
+        return res.status(400).json({
+          message: "Invalid month range format. Use YYYY-MM for fromMonth and toMonth.",
+        });
+      }
+
+      startDate = new Date(Date.UTC(fromInfo.year, fromInfo.monthValue - 1, 1));
+      endDate = new Date(Date.UTC(toInfo.year, toInfo.monthValue, 1));
+
+      if (startDate >= endDate) {
+        return res.status(400).json({
+          message: "fromMonth must be before or equal to toMonth.",
+        });
+      }
+    } else if (month) {
+      const monthInfo = parseMonthDate(month);
+
+      if (!monthInfo) {
+        return res.status(400).json({
+          message: "Invalid month format. Use YYYY-MM.",
+        });
+      }
+
+      startDate = new Date(Date.UTC(monthInfo.year, monthInfo.monthValue - 1, 1));
+      endDate = new Date(Date.UTC(monthInfo.year, monthInfo.monthValue, 1));
+    }
 
     if (userType === "specificCustomer") {
       if (product === "mergeBill") {
-        query.$or = [
-          { userId: userId },
-          { ref_no: ref_no }
-        ];
+        const mergeConditions = [];
+        if (userId) mergeConditions.push({ userId });
+        if (ref_no) mergeConditions.push({ ref_no });
+
+        if (!mergeConditions.length) {
+          return res.status(400).json({ message: "userId or ref_no is required for mergeBill." });
+        }
+
+        query.$or = mergeConditions;
         
       } else {
         query.userId = userId;
       }
     } else if (userType === "walkingCustomer") {
       if (product === "mergeBill") {
-         query.$or = [
-          { userId: userId },
-          { ref_no: ref_no }
-        ];
+        const mergeConditions = [];
+        if (userId) mergeConditions.push({ userId });
+        if (ref_no) mergeConditions.push({ ref_no });
+
+        if (!mergeConditions.length) {
+          return res.status(400).json({ message: "userId or ref_no is required for mergeBill." });
+        }
+
+        query.$or = mergeConditions;
       } else {
         query.ref_no = ref_no;
       }
       
     
     }
-    if (month) {
-      const [year, monthValue] = month.split("-").map(Number);
-      const startDate = new Date(Date.UTC(year, monthValue - 1, 1));
-      const endDate = new Date(Date.UTC(year, monthValue, 1));
 
+    if (startDate && endDate) {
       query.date = {
         $gte: startDate,
         $lt: endDate,
@@ -1086,11 +1159,7 @@ const getCustomerdetails = async (req, res) => {
 
     // ✅ Agar userType specificCustomer hai, to Materialdata ka record dhoondo
     let materialInfo = [];
-    if (userType === "specificCustomer" && userId && month) {
-      const [year, monthValue] = month.split("-").map(Number);
-      const startDate = new Date(Date.UTC(year, monthValue - 1, 1));
-      const endDate = new Date(Date.UTC(year, monthValue, 1));
-
+    if (userType === "specificCustomer" && userId && startDate && endDate) {
       materialInfo = await materialdata.find({
         userId: userId,
         date: {
@@ -1116,12 +1185,19 @@ const getCustomerdetails = async (req, res) => {
       }
     }
 
-    const weights = await getMonthlyPurchaseAndSaleForExtrudingBilling(month, userType, userId);
+    const weights = selectedMonth
+      ? await getMonthlyPurchaseAndSaleForExtrudingBilling(selectedMonth, userType, userId)
+      : {};
 
     res.status(200).json({
       message: "Customer details fetched successfully.",
       data: {
         rxtra: query,
+        period: {
+          month: selectedMonth || null,
+          fromMonth: selectedFromMonth || null,
+          toMonth: selectedToMonth || null,
+        },
         data: customerData,
         billNo: billSummary,
         materialInfo: materialInfo,
@@ -1805,6 +1881,11 @@ const getSalesLedgerYearly = async (req, res) => {
       } 
     }
 
+    if(userType === "all"){
+     delete customerQuery.userType
+     delete paymentQuery.userType
+    }
+
     const openingCustomerQuery = {
       ...customerQuery,
       date: { $lt: startDate },
@@ -1851,6 +1932,10 @@ const getSalesLedgerYearly = async (req, res) => {
           _id: {
             year: { $year: "$date" },
             month: { $month: "$date" },
+            userType: "$userType",
+            userId: "$userId",
+            ref_no: "$ref_no",
+            clientName: "$clientName",
           },
           debit: {
             $sum: {
@@ -1884,6 +1969,10 @@ const getSalesLedgerYearly = async (req, res) => {
             ],
           },
           folio: "",
+          clientName: { $ifNull: ["$_id.clientName", ""] },
+          userType: { $ifNull: ["$_id.userType", ""] },
+          customerType: { $ifNull: ["$_id.userType", ""] },
+          userId: { $ifNull: ["$_id.userId", ""] },
           billNo: {
             $reduce: {
               input: {
@@ -1934,6 +2023,12 @@ const getSalesLedgerYearly = async (req, res) => {
               },
             },
           },
+          customer: {
+            clientName: { $ifNull: ["$_id.clientName", ""] },
+            userType: { $ifNull: ["$_id.userType", ""] },
+            userId: { $ifNull: ["$_id.userId", ""] },
+            ref_no: { $ifNull: ["$_id.ref_no", ""] },
+          },
           debit: { $round: ["$debit", 2] },
           credit: { $literal: 0 },
           entryType: { $literal: "bill" },
@@ -1950,7 +2045,17 @@ const getSalesLedgerYearly = async (req, res) => {
       billNo: item.billNo || "",
       paymentId: item._id,
       dueOnDate: item.dueOnDate || "",
+      clientName: item.clientName || "",
+      userType: item.userType || "",
+      customerType: item.userType || "",
+      userId: item.userId || "",
       ref_no: item.ref_no || "",
+      customer: {
+        clientName: item.clientName || "",
+        userType: item.userType || "",
+        userId: item.userId || "",
+        ref_no: item.ref_no || "",
+      },
       debit: 0,
       credit: Number(item.amount || 0),
       entryType: "payment",
@@ -1975,7 +2080,17 @@ const getSalesLedgerYearly = async (req, res) => {
       billNo: billNo || "",
       paymentId: "",
       dueOnDate: "",
+      clientName: userName || "",
+      userType,
+      customerType: userType,
+      userId: userId || "",
       ref_no: ref_no || "",
+      customer: {
+        clientName: userName || "",
+        userType,
+        userId: userId || "",
+        ref_no: ref_no || "",
+      },
       debit: 0,
       credit: 0,
       balance: openingBalance,
@@ -2006,7 +2121,17 @@ const getSalesLedgerYearly = async (req, res) => {
       billNo: billNo || "",
       paymentId: "",
       dueOnDate: "",
+      clientName: userName || "",
+      userType,
+      customerType: userType,
+      userId: userId || "",
       ref_no: ref_no || "",
+      customer: {
+        clientName: userName || "",
+        userType,
+        userId: userId || "",
+        ref_no: ref_no || "",
+      },
       debit: Number(totalDebit.toFixed(2)),
       credit: Number(totalCredit.toFixed(2)),
       balance: finalBalance,
