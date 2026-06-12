@@ -23,4 +23,19 @@ const jwtAuthMiddleware= (req, res, next) => {
     res.status(401).json({ error: 'Invalid token' });
   }
 };
-module.exports = {jwtAuthMiddleware, };
+
+const authorizeRoles = (...allowedRoles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    if (!allowedRoles.includes(req.user.userRole)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    next();
+  };
+};
+
+module.exports = {jwtAuthMiddleware, authorizeRoles };

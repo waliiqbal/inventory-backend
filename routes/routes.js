@@ -1,8 +1,8 @@
 const cors = require("cors");
 const jwt = require('jsonwebtoken');
-const {jwtAuthMiddleware,} = require('./../jwt');
+const {jwtAuthMiddleware, authorizeRoles} = require('./../jwt');
 
-const {  createUser,loginUser, getCombinedData, getCustomer, getCustomerbyId, getMaterialbyId, Creatematerial,editMaterial, deleteMaterial, createCustomer,editCustomer, deleteCustomer,getMaterial, updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, walkingCustomer }
+const {  createUser,loginUser, changePassword, forgotPassword, getCombinedData, getCustomer, getCustomerbyId, getMaterialbyId, Creatematerial,editMaterial, deleteMaterial, createCustomer,editCustomer, deleteCustomer,getMaterial, updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, walkingCustomer }
  = require("../inventorycontrollers/inventoryController");
 
 const CustomRoutes = (http, express) => {
@@ -18,37 +18,44 @@ const CustomRoutes = (http, express) => {
 // user Routes
 http.post("/inventoryApp/loginUser", loginUser);
 http.post("/inventoryApp/createUser", createUser);
-http.post("/inventoryApp/Creatematerial", Creatematerial);
-http.post("/inventoryApp/createCustomer", createCustomer);
+http.post("/inventoryApp/forgotPassword", forgotPassword);
+http.patch("/inventoryApp/changePassword", jwtAuthMiddleware, changePassword);
 
-http.get("/inventoryApp/getMaterial", getCombinedData);
-http.get("/inventoryApp/getCustomer", getCustomer);
-http.get("/inventoryApp/getMaterial/:id", getMaterialbyId);
-http.delete("/inventoryApp/deleteMaterial/:id", deleteMaterial);
-http.patch("/inventoryApp/editMaterial", editMaterial);
+const allRoles = authorizeRoles("admin", "manager", "accounts");
+const adminOrManager = authorizeRoles("admin", "manager");
+const adminOrAccounts = authorizeRoles("admin", "accounts");
 
-http.get("/inventoryApp/getCustomerbyId/:id", getCustomerbyId);
-http.get("/inventoryApp/getcategoryCustomerbyId/:id", getcategoryCustomerbyId);
+http.post("/inventoryApp/Creatematerial", jwtAuthMiddleware, adminOrManager, Creatematerial);
+http.post("/inventoryApp/createCustomer", jwtAuthMiddleware, adminOrManager, createCustomer);
 
-http.patch("/inventoryApp/editCustomer", editCustomer);
-http.delete("/inventoryApp/deleteCustomer/:id", deleteCustomer  );
-http.get("/inventoryApp/updateMaterialStatusById/:id", updateMaterialStatusById);
-http.get("/inventoryApp/updateCustomerStatusById/:id", updateCustomerStatusById);
+http.get("/inventoryApp/getMaterial", jwtAuthMiddleware, allRoles, getCombinedData);
+http.get("/inventoryApp/getCustomer", jwtAuthMiddleware, allRoles, getCustomer);
+http.get("/inventoryApp/getMaterial/:id", jwtAuthMiddleware, allRoles, getMaterialbyId);
+http.delete("/inventoryApp/deleteMaterial/:id", jwtAuthMiddleware, adminOrManager, deleteMaterial);
+http.patch("/inventoryApp/editMaterial", jwtAuthMiddleware, adminOrManager, editMaterial);
+
+http.get("/inventoryApp/getCustomerbyId/:id", jwtAuthMiddleware, allRoles, getCustomerbyId);
+http.get("/inventoryApp/getcategoryCustomerbyId/:id", jwtAuthMiddleware, allRoles, getcategoryCustomerbyId);
+
+http.patch("/inventoryApp/editCustomer", jwtAuthMiddleware, adminOrManager, editCustomer);
+http.delete("/inventoryApp/deleteCustomer/:id", jwtAuthMiddleware, adminOrManager, deleteCustomer  );
+http.get("/inventoryApp/updateMaterialStatusById/:id", jwtAuthMiddleware, adminOrManager, updateMaterialStatusById);
+http.get("/inventoryApp/updateCustomerStatusById/:id", jwtAuthMiddleware, adminOrManager, updateCustomerStatusById);
 
 
-http.post("/inventoryApp/CreateCategoryCustomer",  CreateCategoryCustomer);
-http.get("/inventoryApp/getCategoryCustomer", getCategoryCustomer);
-http.get("/inventoryApp/getwalkingcustomer", getwalkingcustomer);
-http.get("/inventoryApp/getCustomerdetails", getCustomerdetails);
-http.delete("/inventoryApp/deleteCategoryCustomer/:id", deleteCategoryCustomer);
-http.patch("/inventoryApp/EditCategoryCustomer", EditCategoryCustomer);
+http.post("/inventoryApp/CreateCategoryCustomer", jwtAuthMiddleware, adminOrManager, CreateCategoryCustomer);
+http.get("/inventoryApp/getCategoryCustomer", jwtAuthMiddleware, allRoles, getCategoryCustomer);
+http.get("/inventoryApp/getwalkingcustomer", jwtAuthMiddleware, allRoles, getwalkingcustomer);
+http.get("/inventoryApp/getCustomerdetails", jwtAuthMiddleware, allRoles, getCustomerdetails);
+http.delete("/inventoryApp/deleteCategoryCustomer/:id", jwtAuthMiddleware, adminOrManager, deleteCategoryCustomer);
+http.patch("/inventoryApp/EditCategoryCustomer", jwtAuthMiddleware, adminOrManager, EditCategoryCustomer);
 
-http.get("/inventoryApp/getSalesLedgerYearly", getSalesLedgerYearly);
+http.get("/inventoryApp/getSalesLedgerYearly", jwtAuthMiddleware, adminOrManager, getSalesLedgerYearly);
 
-http.post("/inventoryApp/receiveSalesPayment", receiveSalesPayment);
-http.patch("/inventoryApp/editSalesPayment/:id", editSalesPayment);
-http.delete("/inventoryApp/deleteSalesPayment/:id", deleteSalesPayment);
-http.get("/inventoryApp/walkingCustomer", walkingCustomer);
+http.post("/inventoryApp/receiveSalesPayment", jwtAuthMiddleware, adminOrManager, receiveSalesPayment);
+http.patch("/inventoryApp/editSalesPayment/:id", jwtAuthMiddleware, adminOrManager, editSalesPayment);
+http.delete("/inventoryApp/deleteSalesPayment/:id", jwtAuthMiddleware, adminOrManager, deleteSalesPayment);
+http.get("/inventoryApp/walkingCustomer", jwtAuthMiddleware, allRoles, walkingCustomer);
 }
   // http.post("/costingapp/insertFormData", insertFormData);
   // http.post("/costingapp/Adminlogin", Adminlogin);

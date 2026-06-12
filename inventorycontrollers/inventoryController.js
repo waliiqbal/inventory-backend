@@ -66,12 +66,52 @@ const generateWalkingCustomerRefNo = async () => {
 };
 
 
+const allowedUserRoles = ["admin", "manager", "accounts"];
+
+const getUserResponse = (user) => {
+  const userObject = user.toObject ? user.toObject() : user;
+  const { password, ...safeUser } = userObject;
+  return safeUser;
+};
+
 
 const createUser = async (req, res) => {
   console.log(req.body);
   try {
   
     const { username, email, password, userRole } = req.body;
+
+    if (!username || !email || !password) {
+      return res.status(400).json({ message: 'username, email and password are required' });
+    }
+
+    const normalizedRole = userRole || 'admin';
+    if (!allowedUserRoles.includes(normalizedRole)) {
+      return res.status(400).json({ message: 'Invalid user role' });
+    }
+
+    const totalUsers = await userData.countDocuments();
+    if (totalUsers === 0 && normalizedRole !== 'admin') {
+      return res.status(400).json({ message: 'First user must be admin' });
+    }
+
+    if (totalUsers > 0) {
+      const token = req.headers.authorization?.split(' ')[1];
+      if (!token) {
+        return res.status(401).json({ message: 'Admin token is required to create users' });
+      }
+
+      let decoded;
+      try {
+        decoded = jwt.verify(token, process.env.JWT_SECRET_KEY);
+      } catch (tokenError) {
+        return res.status(401).json({ message: 'Invalid admin token' });
+      }
+
+      if (decoded.userRole !== 'admin') {
+        return res.status(403).json({ message: 'Only admin can create users' });
+      }
+    }
 
   
     const existingUser = await userData.findOne({ email });
@@ -88,14 +128,14 @@ const createUser = async (req, res) => {
       username,
       email,
       password: hashedPassword, 
-      userRole
+      userRole: normalizedRole
     });
 
 
     await newUser.save();
 
   
-    res.status(201).json({ message: 'User created successfully', user: newUser });
+    res.status(201).json({ message: 'User created successfully', user: getUserResponse(newUser) });
   } catch (error) {
     console.log(error);
 
@@ -114,6 +154,10 @@ const loginUser = async (req, res) => {
       return res.status(400).json({ error: 'User not found' });
     }
 
+    if (user.isActive === false) {
+      return res.status(403).json({ error: 'User is inactive' });
+    }
+
    
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
@@ -125,6 +169,7 @@ const loginUser = async (req, res) => {
       userId: user._id,
       email: user.email,
       userRole: user.userRole,
+      userName: user.username,
     };
 
     const token = jwt.sign(payload, process.env.JWT_SECRET_KEY, {
@@ -136,7 +181,8 @@ const loginUser = async (req, res) => {
       
       {
         data: {message: 'Login successful',
-          accessToken: token}
+          accessToken: token,
+          user: getUserResponse(user)}
       
     });
 
@@ -144,6 +190,100 @@ const loginUser = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Server error' });
+  }
+};
+
+const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "currentPassword and newPassword are required",
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be at least 6 characters",
+      });
+    }
+
+    const user = await userData.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isCurrentPasswordValid) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password is incorrect",
+      });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Password changed successfully",
+    });
+  } catch (error) {
+    console.error("changePassword error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error changing password",
+      error: error.message,
+    });
+  }
+};
+
+const forgotPassword = async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+
+    if (!email || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "email and newPassword are required",
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be at least 6 characters",
+      });
+    }
+
+    const user = await userData.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Password reset successfully",
+    });
+  } catch (error) {
+    console.error("forgotPassword error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error resetting password",
+      error: error.message,
+    });
   }
 };
  
@@ -2246,4 +2386,4 @@ const walkingCustomer = async (req, res) => {
 
 
 
-module.exports = { createUser, getCustomerbyId, getCustomer, getMaterialbyId,getMaterial, loginUser,Creatematerial,editMaterial, deleteMaterial, createCustomer, editCustomer, deleteCustomer,updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, getCombinedData, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, walkingCustomer };
+module.exports = { createUser, getCustomerbyId, getCustomer, getMaterialbyId,getMaterial, loginUser, changePassword, forgotPassword, Creatematerial,editMaterial, deleteMaterial, createCustomer, editCustomer, deleteCustomer,updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, getCombinedData, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, walkingCustomer };

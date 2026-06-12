@@ -22,9 +22,13 @@ const userSchema = new mongoose.Schema({
   },
   userRole: {
     type: String,
-    enum: ['superAdmin', 'admin'],
+    enum: ['admin', 'manager', 'accounts'],
     required: true,
     default: 'admin'
+  },
+  isActive: {
+    type: Boolean,
+    default: true
   }
 }, {
   timestamps: true
