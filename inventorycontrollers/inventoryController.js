@@ -1791,6 +1791,7 @@ const getSalesLedgerYearly = async (req, res) => {
       year,
       month,
       product,
+      customerProduct,
       fromMonth,
       toMonth,
       startMonth,
@@ -1957,6 +1958,21 @@ const getSalesLedgerYearly = async (req, res) => {
       date: { $gte: startDate, $lt: endDate },
     };
 
+    const normalizedCustomerProduct = customerProduct
+      ? String(customerProduct).trim().toLowerCase()
+      : "all";
+
+    if (!["poleythene", "hydensity", "all"].includes(normalizedCustomerProduct)) {
+      return res.status(400).json({
+        success: false,
+        message: "customerProduct must be poleythene, hydensity or all",
+      });
+    }
+
+    if (normalizedCustomerProduct !== "all") {
+      customerQuery.product = normalizedCustomerProduct;
+    }
+
     const applyMergeBillQuery = (query) => {
       const mergeConditions = [];
 
@@ -1988,12 +2004,7 @@ const getSalesLedgerYearly = async (req, res) => {
             message: "userId or ref_no is required for mergeBill ledger",
           });
         }
-      } else if (!userId) {
-        return res.status(400).json({
-          success: false,
-          message: "userId is required for specific customer",
-        });
-      } else {
+      } else if (userId) {
         customerQuery.userId = userId;
         paymentQuery.userId = userId;
       }
@@ -2284,6 +2295,7 @@ const getSalesLedgerYearly = async (req, res) => {
       data: [openingEntry, ...ledger, finalEntry],
       summary: {
         year: yearNumber || startMonthInfo.year,
+        customerProduct: normalizedCustomerProduct,
         fromMonth: `${startMonthInfo.year}-${String(startMonthInfo.month).padStart(2, "0")}`,
         toMonth: `${endMonthInfo.year}-${String(endMonthInfo.month).padStart(2, "0")}`,
         openingBalance,
