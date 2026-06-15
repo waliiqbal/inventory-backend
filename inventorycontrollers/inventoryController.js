@@ -2187,30 +2187,161 @@ const getSalesLedgerYearly = async (req, res) => {
       },
     ]);
 
-    const payments = await SalesPaymentData.find(paymentQuery).lean();
+    const isAllCustomersLedger = !userId && !ref_no;
+    let paymentEntries = [];
 
-    const paymentEntries = payments.map((item) => ({
-      date: item.date,
-      description: item.description || "Payment received",
-      folio: item.folio || "",
-      billNo: item.billNo || "",
-      paymentId: item._id,
-      dueOnDate: item.dueOnDate || "",
-      clientName: item.clientName || "",
-      userType: item.userType || "",
-      customerType: item.userType || "",
-      userId: item.userId || "",
-      ref_no: item.ref_no || "",
-      customer: {
+    if (isAllCustomersLedger) {
+      paymentEntries = await SalesPaymentData.aggregate([
+        { $match: paymentQuery },
+        {
+          $group: {
+            _id: {
+              year: { $year: "$date" },
+              month: { $month: "$date" },
+              customerKey: {
+                $cond: [
+                  { $ne: [{ $ifNull: ["$userId", ""] }, ""] },
+                  { $concat: ["user:", "$userId"] },
+                  {
+                    $cond: [
+                      { $ne: [{ $ifNull: ["$ref_no", ""] }, ""] },
+                      { $concat: ["ref:", "$ref_no"] },
+                      {
+                        $concat: [
+                          "name:",
+                          { $toLower: { $ifNull: ["$clientName", ""] } },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+            credit: { $sum: "$amount" },
+            paymentCount: { $sum: 1 },
+            billNumbers: { $addToSet: "$billNo" },
+            folios: { $addToSet: "$folio" },
+            clientName: { $first: "$clientName" },
+            userType: { $first: "$userType" },
+            userId: { $first: "$userId" },
+            ref_no: { $first: "$ref_no" },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            date: {
+              $dateFromParts: {
+                year: "$_id.year",
+                month: "$_id.month",
+                day: 1,
+              },
+            },
+            description: {
+              $concat: [
+                "Monthly payment total - ",
+                { $toString: "$paymentCount" },
+                " payment(s) - ",
+                { $toString: "$_id.month" },
+                "/",
+                { $toString: "$_id.year" },
+              ],
+            },
+            folio: {
+              $reduce: {
+                input: {
+                  $filter: {
+                    input: "$folios",
+                    as: "folioValue",
+                    cond: {
+                      $and: [
+                        { $ne: ["$$folioValue", null] },
+                        { $ne: ["$$folioValue", ""] },
+                      ],
+                    },
+                  },
+                },
+                initialValue: "",
+                in: {
+                  $cond: [
+                    { $eq: ["$$value", ""] },
+                    "$$this",
+                    { $concat: ["$$value", ", ", "$$this"] },
+                  ],
+                },
+              },
+            },
+            billNo: {
+              $reduce: {
+                input: {
+                  $filter: {
+                    input: "$billNumbers",
+                    as: "billNumber",
+                    cond: {
+                      $and: [
+                        { $ne: ["$$billNumber", null] },
+                        { $ne: ["$$billNumber", ""] },
+                      ],
+                    },
+                  },
+                },
+                initialValue: "",
+                in: {
+                  $cond: [
+                    { $eq: ["$$value", ""] },
+                    "$$this",
+                    { $concat: ["$$value", ", ", "$$this"] },
+                  ],
+                },
+              },
+            },
+            paymentId: "",
+            dueOnDate: "",
+            clientName: { $ifNull: ["$clientName", ""] },
+            userType: { $ifNull: ["$userType", ""] },
+            customerType: { $ifNull: ["$userType", ""] },
+            userId: { $ifNull: ["$userId", ""] },
+            ref_no: { $ifNull: ["$ref_no", ""] },
+            customer: {
+              clientName: { $ifNull: ["$clientName", ""] },
+              userType: { $ifNull: ["$userType", ""] },
+              userId: { $ifNull: ["$userId", ""] },
+              ref_no: { $ifNull: ["$ref_no", ""] },
+            },
+            paymentCount: 1,
+            debit: { $literal: 0 },
+            credit: { $round: ["$credit", 2] },
+            entryType: { $literal: "payment" },
+          },
+        },
+      ]);
+    } else {
+      const payments = await SalesPaymentData.find(paymentQuery).lean();
+
+      paymentEntries = payments.map((item) => ({
+        date: item.date,
+        description: item.description || "Payment received",
+        folio: item.folio || "",
+        billNo: item.billNo || "",
+        paymentId: item._id,
+        dueOnDate: item.dueOnDate || "",
         clientName: item.clientName || "",
         userType: item.userType || "",
+        customerType: item.userType || "",
         userId: item.userId || "",
         ref_no: item.ref_no || "",
-      },
-      debit: 0,
-      credit: Number(item.amount || 0),
-      entryType: "payment",
-    }));
+        customer: {
+          clientName: item.clientName || "",
+          userType: item.userType || "",
+          userId: item.userId || "",
+          ref_no: item.ref_no || "",
+        },
+        paymentCount: 1,
+        debit: 0,
+        credit: Number(item.amount || 0),
+        entryType: "payment",
+      }));
+    }
 
     const entries = [...monthlyBills, ...paymentEntries].sort(
       (a, b) => {
