@@ -2446,6 +2446,729 @@ const getSalesLedgerYearly = async (req, res) => {
   }
 };
 
+const getSalesLedgerSummary = async (req, res) => {
+  try {
+    const {
+      year,
+      month,
+      product,
+      customerProduct,
+      fromMonth,
+      toMonth,
+      startMonth,
+      endMonth,
+      monthFrom,
+      monthTo,
+      from_month,
+      to_month,
+      userType,
+      userId,
+      phoneNumber,
+      billNo,
+      userName,
+      ref_no,
+    } = req.query;
+
+    if (!userType) {
+      return res.status(400).json({
+        success: false,
+        message: "userType is required",
+      });
+    }
+
+    const yearNumber = year ? Number(year) : null;
+    if (year && !Number.isInteger(yearNumber)) {
+      return res.status(400).json({
+        success: false,
+        message: "year must be a valid number",
+      });
+    }
+
+    const monthNames = {
+      january: 1,
+      february: 2,
+      feb: 2,
+      march: 3,
+      mar: 3,
+      april: 4,
+      apr: 4,
+      may: 5,
+      june: 6,
+      jun: 6,
+      july: 7,
+      jul: 7,
+      august: 8,
+      aug: 8,
+      september: 9,
+      sep: 9,
+      sept: 9,
+      october: 10,
+      oct: 10,
+      november: 11,
+      nov: 11,
+      december: 12,
+      dec: 12,
+    };
+
+    const parseMonthYear = (value, defaultYear = null) => {
+      if (!value) return null;
+
+      const normalizedValue = String(value)
+        .trim()
+        .toLowerCase()
+        .replace(/[/_]/g, "-")
+        .replace(/\s+/g, "-");
+
+      const parts = normalizedValue.split("-").filter(Boolean);
+      let parsedYear = defaultYear;
+      let monthValue = null;
+
+      for (const part of parts) {
+        if (/^\d{4}$/.test(part)) {
+          parsedYear = Number(part);
+          continue;
+        }
+
+        if (!monthValue) {
+          monthValue = monthNames[part] || Number(part);
+        }
+      }
+
+      if (!Number.isInteger(monthValue) || monthValue < 1 || monthValue > 12) {
+        return null;
+      }
+
+      if (!Number.isInteger(parsedYear)) {
+        return null;
+      }
+
+      return {
+        year: parsedYear,
+        month: monthValue,
+      };
+    };
+
+    const selectedFromMonth = fromMonth || startMonth || monthFrom || from_month;
+    const selectedToMonth = toMonth || endMonth || monthTo || to_month;
+    let startDate;
+    let endDate;
+    let startMonthInfo = null;
+    let endMonthInfo = null;
+
+    if (selectedFromMonth && selectedToMonth) {
+      startMonthInfo = parseMonthYear(selectedFromMonth, yearNumber);
+      endMonthInfo = parseMonthYear(selectedToMonth, yearNumber);
+    } else if (selectedFromMonth || selectedToMonth) {
+      const selectedMonthInfo = parseMonthYear(selectedFromMonth || selectedToMonth, yearNumber);
+      if (selectedMonthInfo) {
+        startMonthInfo = {
+          year: selectedMonthInfo.year,
+          month: 1,
+        };
+        endMonthInfo = selectedMonthInfo;
+      }
+    } else if (month) {
+      const selectedMonthInfo = parseMonthYear(month, yearNumber);
+      if (!selectedMonthInfo) {
+        return res.status(400).json({
+          success: false,
+          message: "month must be a valid month number/name, or a month-year value like jan-2025",
+        });
+      }
+
+      startMonthInfo = {
+        year: selectedMonthInfo.year,
+        month: 1,
+      };
+      endMonthInfo = selectedMonthInfo;
+    } else if (Number.isInteger(yearNumber)) {
+      startMonthInfo = {
+        year: yearNumber,
+        month: 1,
+      };
+      endMonthInfo = {
+        year: yearNumber,
+        month: 12,
+      };
+    }
+
+    if (!startMonthInfo || !endMonthInfo) {
+      return res.status(400).json({
+        success: false,
+        message: "year is required unless month range includes year, for example fromMonth=jan-2025&toMonth=march-2025",
+      });
+    }
+
+    startDate = new Date(Date.UTC(startMonthInfo.year, startMonthInfo.month - 1, 1));
+    endDate = new Date(Date.UTC(endMonthInfo.year, endMonthInfo.month, 1));
+
+    if (startDate >= endDate) {
+      return res.status(400).json({
+        success: false,
+        message: "from month must be before or equal to to month",
+      });
+    }
+
+    const customerQuery = {
+      userType,
+      date: { $gte: startDate, $lt: endDate },
+    };
+
+    const paymentQuery = {
+      userType,
+      date: { $gte: startDate, $lt: endDate },
+    };
+
+    const normalizedCustomerProduct = customerProduct
+      ? String(customerProduct).trim().toLowerCase()
+      : "all";
+
+    if (!["poleythene", "hydensity", "all"].includes(normalizedCustomerProduct)) {
+      return res.status(400).json({
+        success: false,
+        message: "customerProduct must be poleythene, hydensity or all",
+      });
+    }
+
+    if (normalizedCustomerProduct !== "all") {
+      customerQuery.product = normalizedCustomerProduct;
+    }
+
+    const applyMergeBillQuery = (query) => {
+      const mergeConditions = [];
+
+      if (userId) {
+        mergeConditions.push({ userId });
+      }
+
+      if (ref_no) {
+        mergeConditions.push({ ref_no });
+      }
+
+      if (mergeConditions.length === 0) {
+        return false;
+      }
+
+      delete query.userType;
+      query.$or = mergeConditions;
+      return true;
+    };
+
+    if (userType === "specificCustomer") {
+      if (product === "mergeBill") {
+        const hasMergeBillFilter = applyMergeBillQuery(customerQuery);
+        applyMergeBillQuery(paymentQuery);
+
+        if (!hasMergeBillFilter) {
+          return res.status(400).json({
+            success: false,
+            message: "userId or ref_no is required for mergeBill ledger",
+          });
+        }
+      } else if (userId) {
+        customerQuery.userId = userId;
+        paymentQuery.userId = userId;
+      }
+    }
+
+    if (userType === "walkingCustomer") {
+      // if (billNo) {
+      //   customerQuery.billNo = billNo;
+      //   paymentQuery.billNo = billNo;
+      // }
+
+      if (product === "mergeBill") {
+        const hasMergeBillFilter = applyMergeBillQuery(customerQuery);
+        applyMergeBillQuery(paymentQuery);
+
+        if (!hasMergeBillFilter) {
+          return res.status(400).json({
+            success: false,
+            message: "userId or ref_no is required for mergeBill ledger",
+          });
+        }
+      } else if (ref_no) {
+        customerQuery.ref_no = ref_no;
+        paymentQuery.ref_no = ref_no;
+      } 
+    }
+
+    if(userType === "all"){
+     delete customerQuery.userType
+     delete paymentQuery.userType
+    }
+
+    const openingCustomerQuery = {
+      ...customerQuery,
+      date: { $lt: startDate },
+    };
+
+    const openingPaymentQuery = {
+      ...paymentQuery,
+      date: { $lt: startDate },
+    };
+
+    const [openingBills, openingPayments] = await Promise.all([
+      Customerdata.aggregate([
+        { $match: openingCustomerQuery },
+        {
+          $group: {
+            _id: null,
+            debit: {
+              $sum: {
+                $ifNull: ["$totalAmount", "$amount"],
+              },
+            },
+          },
+        },
+      ]),
+      SalesPaymentData.aggregate([
+        { $match: openingPaymentQuery },
+        {
+          $group: {
+            _id: null,
+            credit: { $sum: "$amount" },
+          },
+        },
+      ]),
+    ]);
+
+    const openingDebit = Number(openingBills[0]?.debit || 0);
+    const openingCredit = Number(openingPayments[0]?.credit || 0);
+    const openingBalance = Number((openingDebit - openingCredit).toFixed(2));
+
+    const monthlyBills = await Customerdata.aggregate([
+      { $match: customerQuery },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$date" },
+            month: { $month: "$date" },
+            userType: "$userType",
+            userId: "$userId",
+            ref_no: "$ref_no",
+            clientName: "$clientName",
+          },
+          debit: {
+            $sum: {
+              $ifNull: ["$totalAmount", "$amount"],
+            },
+          },
+          billNumbers: {
+            $addToSet: "$billNo",
+          },
+          refNumbers: {
+            $addToSet: "$ref_no",
+          },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          date: {
+            $dateFromParts: {
+              year: "$_id.year",
+              month: "$_id.month",
+              day: 1,
+            },
+          },
+          description: {
+            $concat: [
+              "Monthly bill total - ",
+              { $toString: "$_id.month" },
+              "/",
+              { $toString: "$_id.year" },
+            ],
+          },
+          folio: "",
+          clientName: { $ifNull: ["$_id.clientName", ""] },
+          userType: { $ifNull: ["$_id.userType", ""] },
+          customerType: { $ifNull: ["$_id.userType", ""] },
+          userId: { $ifNull: ["$_id.userId", ""] },
+          billNo: {
+            $reduce: {
+              input: {
+                $filter: {
+                  input: "$billNumbers",
+                  as: "billNumber",
+                  cond: {
+                    $and: [
+                      { $ne: ["$$billNumber", null] },
+                      { $ne: ["$$billNumber", ""] },
+                    ],
+                  },
+                },
+              },
+              initialValue: "",
+              in: {
+                $cond: [
+                  { $eq: ["$$value", ""] },
+                  "$$this",
+                  { $concat: ["$$value", ", ", "$$this"] },
+                ],
+              },
+            },
+          },
+          paymentId: "",
+          dueOnDate: "",
+          ref_no: {
+            $reduce: {
+              input: {
+                $filter: {
+                  input: "$refNumbers",
+                  as: "refNumber",
+                  cond: {
+                    $and: [
+                      { $ne: ["$$refNumber", null] },
+                      { $ne: ["$$refNumber", ""] },
+                    ],
+                  },
+                },
+              },
+              initialValue: "",
+              in: {
+                $cond: [
+                  { $eq: ["$$value", ""] },
+                  "$$this",
+                  { $concat: ["$$value", ", ", "$$this"] },
+                ],
+              },
+            },
+          },
+          customer: {
+            clientName: { $ifNull: ["$_id.clientName", ""] },
+            userType: { $ifNull: ["$_id.userType", ""] },
+            userId: { $ifNull: ["$_id.userId", ""] },
+            ref_no: { $ifNull: ["$_id.ref_no", ""] },
+          },
+          debit: { $round: ["$debit", 2] },
+          credit: { $literal: 0 },
+          entryType: { $literal: "bill" },
+        },
+      },
+    ]);
+
+    const isAllCustomersLedger = !userId && !ref_no;
+    let paymentEntries = [];
+
+    if (isAllCustomersLedger) {
+      paymentEntries = await SalesPaymentData.aggregate([
+        { $match: paymentQuery },
+        {
+          $group: {
+            _id: {
+              year: { $year: "$date" },
+              month: { $month: "$date" },
+              customerKey: {
+                $cond: [
+                  { $ne: [{ $ifNull: ["$userId", ""] }, ""] },
+                  { $concat: ["user:", "$userId"] },
+                  {
+                    $cond: [
+                      { $ne: [{ $ifNull: ["$ref_no", ""] }, ""] },
+                      { $concat: ["ref:", "$ref_no"] },
+                      {
+                        $concat: [
+                          "name:",
+                          { $toLower: { $ifNull: ["$clientName", ""] } },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+            credit: { $sum: "$amount" },
+            paymentCount: { $sum: 1 },
+            billNumbers: { $addToSet: "$billNo" },
+            folios: { $addToSet: "$folio" },
+            clientName: { $first: "$clientName" },
+            userType: { $first: "$userType" },
+            userId: { $first: "$userId" },
+            ref_no: { $first: "$ref_no" },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            date: {
+              $dateFromParts: {
+                year: "$_id.year",
+                month: "$_id.month",
+                day: 1,
+              },
+            },
+            description: {
+              $concat: [
+                "Monthly payment total - ",
+                { $toString: "$paymentCount" },
+                " payment(s) - ",
+                { $toString: "$_id.month" },
+                "/",
+                { $toString: "$_id.year" },
+              ],
+            },
+            folio: {
+              $reduce: {
+                input: {
+                  $filter: {
+                    input: "$folios",
+                    as: "folioValue",
+                    cond: {
+                      $and: [
+                        { $ne: ["$$folioValue", null] },
+                        { $ne: ["$$folioValue", ""] },
+                      ],
+                    },
+                  },
+                },
+                initialValue: "",
+                in: {
+                  $cond: [
+                    { $eq: ["$$value", ""] },
+                    "$$this",
+                    { $concat: ["$$value", ", ", "$$this"] },
+                  ],
+                },
+              },
+            },
+            billNo: {
+              $reduce: {
+                input: {
+                  $filter: {
+                    input: "$billNumbers",
+                    as: "billNumber",
+                    cond: {
+                      $and: [
+                        { $ne: ["$$billNumber", null] },
+                        { $ne: ["$$billNumber", ""] },
+                      ],
+                    },
+                  },
+                },
+                initialValue: "",
+                in: {
+                  $cond: [
+                    { $eq: ["$$value", ""] },
+                    "$$this",
+                    { $concat: ["$$value", ", ", "$$this"] },
+                  ],
+                },
+              },
+            },
+            paymentId: "",
+            dueOnDate: "",
+            clientName: { $ifNull: ["$clientName", ""] },
+            userType: { $ifNull: ["$userType", ""] },
+            customerType: { $ifNull: ["$userType", ""] },
+            userId: { $ifNull: ["$userId", ""] },
+            ref_no: { $ifNull: ["$ref_no", ""] },
+            customer: {
+              clientName: { $ifNull: ["$clientName", ""] },
+              userType: { $ifNull: ["$userType", ""] },
+              userId: { $ifNull: ["$userId", ""] },
+              ref_no: { $ifNull: ["$ref_no", ""] },
+            },
+            paymentCount: 1,
+            debit: { $literal: 0 },
+            credit: { $round: ["$credit", 2] },
+            entryType: { $literal: "payment" },
+          },
+        },
+      ]);
+    } else {
+      const payments = await SalesPaymentData.find(paymentQuery).lean();
+
+      paymentEntries = payments.map((item) => ({
+        date: item.date,
+        description: item.description || "Payment received",
+        folio: item.folio || "",
+        billNo: item.billNo || "",
+        paymentId: item._id,
+        dueOnDate: item.dueOnDate || "",
+        clientName: item.clientName || "",
+        userType: item.userType || "",
+        customerType: item.userType || "",
+        userId: item.userId || "",
+        ref_no: item.ref_no || "",
+        customer: {
+          clientName: item.clientName || "",
+          userType: item.userType || "",
+          userId: item.userId || "",
+          ref_no: item.ref_no || "",
+        },
+        paymentCount: 1,
+        debit: 0,
+        credit: Number(item.amount || 0),
+        entryType: "payment",
+      }));
+    }
+
+    const mergeLedgerSummaryEntries = (items) => {
+      const mergedMap = new Map();
+
+      const appendText = (currentValue = "", nextValue = "") => {
+        if (!nextValue) return currentValue || "";
+        if (!currentValue) return nextValue;
+        if (String(currentValue).split(", ").includes(String(nextValue))) return currentValue;
+        return `${currentValue}, ${nextValue}`;
+      };
+
+      items.forEach((item) => {
+        const itemDate = new Date(item.date);
+        const monthDate = new Date(Date.UTC(itemDate.getUTCFullYear(), itemDate.getUTCMonth(), 1));
+        const identityKey = item.userId
+          ? `user:${item.userId}`
+          : item.ref_no
+            ? `ref:${item.ref_no}`
+            : `name:${String(item.clientName || "").toLowerCase()}`;
+        const mergeKey = `${monthDate.toISOString()}|${item.userType || ""}|${identityKey}`;
+
+        if (!mergedMap.has(mergeKey)) {
+          mergedMap.set(mergeKey, {
+            ...item,
+            date: monthDate,
+            description: "",
+            folio: "",
+            billNo: "",
+            paymentId: "",
+            dueOnDate: "",
+            debit: 0,
+            credit: 0,
+            paymentCount: 0,
+            entryType: "summary",
+          });
+        }
+
+        const mergedItem = mergedMap.get(mergeKey);
+        mergedItem.debit += Number(item.debit || 0);
+        mergedItem.credit += Number(item.credit || 0);
+        mergedItem.paymentCount += Number(item.paymentCount || (item.entryType === "payment" ? 1 : 0));
+        mergedItem.description = appendText(mergedItem.description, item.description);
+        mergedItem.folio = appendText(mergedItem.folio, item.folio);
+        mergedItem.billNo = appendText(mergedItem.billNo, item.billNo);
+
+        if (!mergedItem.clientName && item.clientName) mergedItem.clientName = item.clientName;
+        if (!mergedItem.userType && item.userType) mergedItem.userType = item.userType;
+        if (!mergedItem.customerType && item.customerType) mergedItem.customerType = item.customerType;
+        if (!mergedItem.userId && item.userId) mergedItem.userId = item.userId;
+        if (!mergedItem.ref_no && item.ref_no) mergedItem.ref_no = item.ref_no;
+        if (!mergedItem.customer?.clientName && item.customer) mergedItem.customer = item.customer;
+      });
+
+      return Array.from(mergedMap.values()).map((item) => ({
+        ...item,
+        debit: Number(item.debit.toFixed(2)),
+        credit: Number(item.credit.toFixed(2)),
+        paymentCount: item.paymentCount || 0,
+      }));
+    };
+
+    const mergedSummaryEntries = mergeLedgerSummaryEntries([...monthlyBills, ...paymentEntries]);
+
+    const entries = mergedSummaryEntries.sort(
+      (a, b) => {
+        const dateDifference = new Date(a.date) - new Date(b.date);
+        if (dateDifference !== 0) return dateDifference;
+        return String(a.entryType || "").localeCompare(String(b.entryType || ""));
+      }
+    );
+
+    let balance = openingBalance;
+    let totalDebit = 0;
+    let totalCredit = 0;
+
+    const openingEntry = {
+      date: startDate,
+      description: "Opening balance",
+      folio: "",
+      billNo: billNo || "",
+      paymentId: "",
+      dueOnDate: "",
+      clientName: userName || "",
+      userType,
+      customerType: userType,
+      userId: userId || "",
+      ref_no: ref_no || "",
+      customer: {
+        clientName: userName || "",
+        userType,
+        userId: userId || "",
+        ref_no: ref_no || "",
+      },
+      debit: 0,
+      credit: 0,
+      balance: openingBalance,
+      entryType: "opening",
+    };
+
+    const ledger = entries.map((item) => {
+      const debit = Number(item.debit || 0);
+      const credit = Number(item.credit || 0);
+
+      totalDebit += debit;
+      totalCredit += credit;
+      balance += debit - credit;
+
+      return {
+        ...item,
+        debit: Number(debit.toFixed(2)),
+        credit: Number(credit.toFixed(2)),
+        balance: Number(balance.toFixed(2)),
+      };
+    });
+
+    const finalBalance = Number(balance.toFixed(2));
+    const finalEntry = {
+      date: endDate,
+      description: "Final total",
+      folio: "",
+      billNo: billNo || "",
+      paymentId: "",
+      dueOnDate: "",
+      clientName: userName || "",
+      userType,
+      customerType: userType,
+      userId: userId || "",
+      ref_no: ref_no || "",
+      customer: {
+        clientName: userName || "",
+        userType,
+        userId: userId || "",
+        ref_no: ref_no || "",
+      },
+      debit: Number(totalDebit.toFixed(2)),
+      credit: Number(totalCredit.toFixed(2)),
+      balance: finalBalance,
+      entryType: "total",
+    };
+
+    return res.status(200).json({
+      success: true,
+      message: "Sales ledger fetched successfully",
+      data: [openingEntry, ...ledger, finalEntry],
+      summary: {
+        year: yearNumber || startMonthInfo.year,
+        customerProduct: normalizedCustomerProduct,
+        fromMonth: `${startMonthInfo.year}-${String(startMonthInfo.month).padStart(2, "0")}`,
+        toMonth: `${endMonthInfo.year}-${String(endMonthInfo.month).padStart(2, "0")}`,
+        openingBalance,
+        totalDebit: Number(totalDebit.toFixed(2)),
+        totalCredit: Number(totalCredit.toFixed(2)),
+        closingBalance: finalBalance,
+        finalBalance,
+      },
+    });
+  } catch (error) {
+    console.error("getSalesLedgerYearly error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching sales ledger",
+      error: error.message,
+    });
+  }
+};
+
 const walkingCustomer = async (req, res) => {
   try {
     const { search, page = 1, limit = 1000 } = req.query;
@@ -2529,4 +3252,4 @@ const walkingCustomer = async (req, res) => {
 
 
 
-module.exports = { createUser, getCustomerbyId, getCustomer, getMaterialbyId,getMaterial, loginUser, changePassword, forgotPassword, Creatematerial,editMaterial, deleteMaterial, createCustomer, editCustomer, deleteCustomer,updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, getCombinedData, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, walkingCustomer };
+module.exports = { createUser, getCustomerbyId, getCustomer, getMaterialbyId,getMaterial, loginUser, changePassword, forgotPassword, Creatematerial,editMaterial, deleteMaterial, createCustomer, editCustomer, deleteCustomer,updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, getCombinedData, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, walkingCustomer, getSalesLedgerSummary };

@@ -2,7 +2,7 @@ const cors = require("cors");
 const jwt = require('jsonwebtoken');
 const {jwtAuthMiddleware, authorizeRoles} = require('./../jwt');
 
-const {  createUser,loginUser, changePassword, forgotPassword, getCombinedData, getCustomer, getCustomerbyId, getMaterialbyId, Creatematerial,editMaterial, deleteMaterial, createCustomer,editCustomer, deleteCustomer,getMaterial, updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, walkingCustomer }
+const {  createUser,loginUser, changePassword, forgotPassword, getCombinedData, getCustomer, getCustomerbyId, getMaterialbyId, Creatematerial,editMaterial, deleteMaterial, createCustomer,editCustomer, deleteCustomer,getMaterial, updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, getSalesLedgerSummary, walkingCustomer }
  = require("../inventorycontrollers/inventoryController");
 
 const CustomRoutes = (http, express) => {
@@ -51,6 +51,7 @@ http.delete("/inventoryApp/deleteCategoryCustomer/:id", jwtAuthMiddleware, admin
 http.patch("/inventoryApp/EditCategoryCustomer", jwtAuthMiddleware, adminOrManager, EditCategoryCustomer);
 
 http.get("/inventoryApp/getSalesLedgerYearly", jwtAuthMiddleware, adminOrManager, getSalesLedgerYearly);
+http.get("/inventoryApp/getSalesLedgerSummary", jwtAuthMiddleware, adminOrManager, getSalesLedgerSummary);
 
 http.post("/inventoryApp/receiveSalesPayment", jwtAuthMiddleware, adminOrManager, receiveSalesPayment);
 http.patch("/inventoryApp/editSalesPayment/:id", jwtAuthMiddleware, adminOrManager, editSalesPayment);
