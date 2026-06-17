@@ -49,6 +49,13 @@ const materialSchema = new mongoose.Schema({
     type: Number,
     required: false 
   },
+
+
+  additional_cargo_rate: { 
+    type: Number,
+    required: false 
+  },
+
   receivedFrom: { 
     type: String, 
     required: true 
