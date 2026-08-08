@@ -24,16 +24,30 @@ const jwtAuthMiddleware= (req, res, next) => {
   }
 };
 
+const normalizeRole = (role = '') => {
+  const normalizedRole = String(role).trim().toLowerCase();
+
+  if (normalizedRole === 'menager') return 'manager';
+  if (normalizedRole === 'superadmin' || normalizedRole === 'super_admin') return 'admin';
+  if (normalizedRole === 'account') return 'accounts';
+
+  return normalizedRole;
+};
+
 const authorizeRoles = (...allowedRoles) => {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    if (!allowedRoles.includes(req.user.userRole)) {
+    const userRole = normalizeRole(req.user.userRole);
+    const normalizedAllowedRoles = allowedRoles.map(normalizeRole);
+
+    if (!normalizedAllowedRoles.includes(userRole)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    req.user.userRole = userRole;
     next();
   };
 };

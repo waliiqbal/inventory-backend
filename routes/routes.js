@@ -56,7 +56,7 @@ http.get("/inventoryApp/getSalesLedgerSummary", jwtAuthMiddleware, adminOrManage
 http.post("/inventoryApp/receiveSalesPayment", jwtAuthMiddleware, adminOrManager, receiveSalesPayment);
 http.patch("/inventoryApp/editSalesPayment/:id", jwtAuthMiddleware, adminOrManager, editSalesPayment);
 http.delete("/inventoryApp/deleteSalesPayment/:id", jwtAuthMiddleware, adminOrManager, deleteSalesPayment);
-http.get("/inventoryApp/walkingCustomer", jwtAuthMiddleware, allRoles, walkingCustomer);
+http.get("/inventoryApp/walkingCustomer", walkingCustomer);
 }
   // http.post("/costingapp/insertFormData", insertFormData);
   // http.post("/costingapp/Adminlogin", Adminlogin);
