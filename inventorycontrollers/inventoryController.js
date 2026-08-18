@@ -287,19 +287,42 @@ const forgotPassword = async (req, res) => {
   }
 };
  
+const toNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+// Har mixing variety ka weight = us ki bags * us ki per bag weight.
+// Agar bags na aayein lekin weight seedha bheja gaya ho to wahi weight le lete hain,
+// taake client sirf jitni varieties use kare utni bhej sake (jo na bheje wo 0 rehti hai).
+const varietyWeight = (bags, bagWeight, directWeight) =>
+  toNumber(bags) && toNumber(bagWeight)
+    ? toNumber(bags) * toNumber(bagWeight)
+    : toNumber(directWeight);
+
 const Creatematerial = async (req, res) => {
   try {
-    const { 
-      date, 
-      pureBags, 
+    const {
+      date,
+      pureBags,
       mixingBags,
-      mixingBagsWeight, 
-      totalBags, 
-      quality, 
-      quantity, 
-      receivedFrom, 
+      mixingBagsWeight,
+      masterbatchBags,
+      masterbatchBagsWeight,
+      CalpetBags,
+      CalpetBagsWeight,
+      lottereneBags,
+      lottereneBagsWeight,
+      RecycleLLDBags,
+      RecycleLLDBagsWeight,
+      PlainBags,
+      PlainBagsWeight,
+      totalBags,
+      quality,
+      quantity,
+      receivedFrom,
       billNo,
-      status, 
+      status,
       product,
       userId,
       userType,
@@ -312,15 +335,44 @@ const Creatematerial = async (req, res) => {
 
     // Calculate weights based on the given logic
     const weightPure = pureBags ? pureBags * 25 : 0; // Multiply pureBags by 25
-    const weightMixing = mixingBags ? mixingBags * mixingBagsWeight : 0; // Multiply mixingBags by 25
-    const grossWeight = totalBags ?  weightPure +  weightMixing   : 0; 
+    const mixingWeight = mixingBags ? mixingBags * mixingBagsWeight : 0; // Multiply mixingBags by 25
 
-    
+    // Har variety: bags aayin to bags se, warna jo weight seedha bheja gaya wahi
+    const weightmasterbatch = varietyWeight(masterbatchBags, masterbatchBagsWeight, req.body.weightmasterbatch);
+    const weightCalpet = varietyWeight(CalpetBags, CalpetBagsWeight, req.body.weightCalpet);
+    const weightlotterene = varietyWeight(lottereneBags, lottereneBagsWeight, req.body.weightlotterene);
+    const weightRecycleLLD = varietyWeight(RecycleLLDBags, RecycleLLDBagsWeight, req.body.weightRecycleLLD);
+    const weightPlain = varietyWeight(PlainBags, PlainBagsWeight, req.body.weightPlain);
+
+    // Extruding customers me mixing ka column nahi aata, uski jagah ye varieties aati hain.
+    // Stock reconciliation abhi bhi Pure/Mixing par chalti hai, is liye weightMixing me
+    // mixing + saari varieties ka TOTAL save hota hai.
+    const weightMixing =
+      mixingWeight +
+      weightmasterbatch +
+      weightCalpet +
+      weightlotterene +
+      weightRecycleLLD +
+      weightPlain;
+
+    const grossWeight = weightPure + weightMixing;
+
+
     const newMaterial = new materialdata({
       date,
       pureBags,
       mixingBags,
       mixingBagsWeight,
+      masterbatchBags,
+      masterbatchBagsWeight,
+      CalpetBags,
+      CalpetBagsWeight,
+      lottereneBags,
+      lottereneBagsWeight,
+      RecycleLLDBags,
+      RecycleLLDBagsWeight,
+      PlainBags,
+      PlainBagsWeight,
       totalBags,
       quality,
       quantity,
@@ -334,9 +386,14 @@ const Creatematerial = async (req, res) => {
       userName,
       isNorani,
       rate,
-      weightPure,   // Add calculated weightPure
-      weightMixing, // Add calculated weightMixing
-      grossWeight,  // Add calculated grossWeight
+      weightPure,        // Add calculated weightPure
+      weightMixing,      // mixing + saari varieties ka total
+      weightmasterbatch, // Add calculated weightmasterbatch
+      weightCalpet,      // Add calculated weightCalpet
+      weightlotterene,   // Add calculated weightlotterene
+      weightRecycleLLD,  // Add calculated weightRecycleLLD
+      weightPlain,       // Add calculated weightPlain
+      grossWeight,       // Add calculated grossWeight
     });
 
     
@@ -350,6 +407,126 @@ const Creatematerial = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error creating material' });
+  }
+};
+
+
+const editMaterial = async (req, res) => {
+  try {
+    const {
+      date,
+      quantity,
+      quality,
+      weightPure,
+      weightMixing,
+      grossWeight,
+      pureBags,
+      mixingBags,
+      mixingBagsWeight,
+      masterbatchBags,
+      masterbatchBagsWeight,
+      CalpetBags,
+      CalpetBagsWeight,
+      lottereneBags,
+      lottereneBagsWeight,
+      RecycleLLDBags,
+      RecycleLLDBagsWeight,
+      PlainBags,
+      PlainBagsWeight,
+      totalBags,
+      receivedFrom,
+      billNo,
+      status,
+      product,
+      _id,
+      userId,
+      userType,
+      userName,
+      rate,
+      isNorani
+    } = req.body;
+
+    if (!_id) {
+      return res.status(400).json({ error: 'Material ID is required' });
+    }
+
+    const updateData = {
+      date, quantity, quality, mixingBagsWeight,
+      receivedFrom, billNo, status, product, userId, userType, userName, rate, isNorani
+    };
+
+    // Recalculate tab hota hai jab body me ya to bags aayi hoN ya kisi variety ka seedha weight.
+    // Body ka weightMixing yahan jaan boojh kar istemal nahi hota — wo pehle se total hota hai,
+    // usme varieties dobara jorne se double count ho jata.
+    const mixingInputProvided = [
+      pureBags, mixingBags,
+      masterbatchBags, CalpetBags, lottereneBags, RecycleLLDBags, PlainBags,
+      req.body.weightmasterbatch, req.body.weightCalpet, req.body.weightlotterene,
+      req.body.weightRecycleLLD, req.body.weightPlain,
+    ].some((value) => value !== undefined && value !== null && value !== "");
+
+    if (mixingInputProvided) {
+      // pureBags aayin to unse, warna jo weightPure bheja gaya wahi (0 nahi, warna pure udd jata)
+      const updatedWeightPure = pureBags ? pureBags * 25 : toNumber(weightPure);
+      const mixingWeight = mixingBags ? mixingBags * mixingBagsWeight : 0;
+
+      // Har variety: bags aayin to bags se, warna jo weight seedha bheja gaya wahi
+      const weightmasterbatch = varietyWeight(masterbatchBags, masterbatchBagsWeight, req.body.weightmasterbatch);
+      const weightCalpet = varietyWeight(CalpetBags, CalpetBagsWeight, req.body.weightCalpet);
+      const weightlotterene = varietyWeight(lottereneBags, lottereneBagsWeight, req.body.weightlotterene);
+      const weightRecycleLLD = varietyWeight(RecycleLLDBags, RecycleLLDBagsWeight, req.body.weightRecycleLLD);
+      const weightPlain = varietyWeight(PlainBags, PlainBagsWeight, req.body.weightPlain);
+
+      // weightMixing = mixing + saari varieties ka TOTAL (stock reconciliation isi par chalti hai)
+      const updatedWeightMixing =
+        mixingWeight +
+        weightmasterbatch +
+        weightCalpet +
+        weightlotterene +
+        weightRecycleLLD +
+        weightPlain;
+
+      Object.assign(updateData, {
+        pureBags,
+        mixingBags,
+        masterbatchBags,
+        masterbatchBagsWeight,
+        CalpetBags,
+        CalpetBagsWeight,
+        lottereneBags,
+        lottereneBagsWeight,
+        RecycleLLDBags,
+        RecycleLLDBagsWeight,
+        PlainBags,
+        PlainBagsWeight,
+        totalBags,
+        weightPure: updatedWeightPure,
+        weightMixing: updatedWeightMixing,
+        weightmasterbatch,
+        weightCalpet,
+        weightlotterene,
+        weightRecycleLLD,
+        weightPlain,
+        grossWeight: updatedWeightPure + updatedWeightMixing,
+      });
+    } else {
+      // Purana behaviour: frontend jo weight bhejta hai wahi save hota hai
+      Object.assign(updateData, { weightPure, weightMixing, grossWeight });
+    }
+
+    const updatedMaterial = await materialdata.findByIdAndUpdate(
+      _id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedMaterial) {
+      return res.status(404).json({ error: 'material not found' });
+    }
+
+    res.status(200).json({ message: 'material updated successfully', material: updatedMaterial });
+  } catch (error) {
+    res.status(500).json({ error: 'Error updating material' });
   }
 };
 
@@ -707,33 +884,6 @@ const updateCustomerStatusById = async (req, res) => {
       success: false,
       error: "Error updating material status",
     });
-  }
-};
-
-
-
-
-const editMaterial = async (req, res) => {
-  try {
-    const { date, quantity, quality, weightPure, weightMixing, mixingBagsWeight, grossWeight, receivedFrom, billNo, status, product, _id, userId ,userType, userName, rate, isNorani  } = req.body;
-
-    if (!_id) {
-      return res.status(400).json({ error: 'Material ID is required' });
-    }
-
-    const updatedMaterial = await materialdata.findByIdAndUpdate(
-      _id,
-      { date, quantity, quality, weightPure, weightMixing, grossWeight, mixingBagsWeight, receivedFrom, billNo, status, product,userId , userType, userName,rate,isNorani},
-      { new: true, runValidators: true }
-    );
-
-    if (!updatedMaterial) {
-      return res.status(404).json({ error: 'material not found' });
-    }
-
-    res.status(200).json({ message: 'material updated successfully', material: updatedMaterial });
-  } catch (error) {
-    res.status(500).json({ error: 'Error updating material' });
   }
 };
 

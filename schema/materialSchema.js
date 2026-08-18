@@ -26,6 +26,51 @@ const materialSchema = new mongoose.Schema({
     required: false
   },
 
+  masterbatchBags: { 
+    type: Number, 
+    required: false 
+  },
+  masterbatchBagsWeight: { 
+    type: Number, 
+    required: false
+  },
+
+  CalpetBags: { 
+    type: Number, 
+    required: false 
+  },
+  CalpetBagsWeight: { 
+    type: Number, 
+    required: false
+  },
+
+  lottereneBags: { 
+    type: Number, 
+    required: false 
+  },
+  lottereneBagsWeight: { 
+    type: Number, 
+    required: false
+  },
+
+  RecycleLLDBags: { 
+    type: Number, 
+    required: false 
+  },
+  RecycleLLDBagsWeight: { 
+    type: Number, 
+    required: false
+  },
+
+  PlainBags: { 
+    type: Number, 
+    required: false 
+  },
+  PlainBagsWeight: { 
+    type: Number, 
+    required: false
+  },
+
   totalBags: { 
     type: Number, 
     required: false 
@@ -40,6 +85,33 @@ const materialSchema = new mongoose.Schema({
     type: Number, 
     required: false 
   },
+
+  weightRecycleLLD: { 
+    type: Number, 
+    required: false 
+  },
+
+  weightPlain: { 
+    type: Number, 
+    required: false 
+  },
+
+  weightlotterene: { 
+    type: Number, 
+    required: false 
+  },
+
+  weightmasterbatch: { 
+    type: Number, 
+    required: false 
+  },
+
+  weightCalpet: { 
+    type: Number, 
+    required: false 
+  },
+
+
   grossWeight: { 
     type: Number,
     required: false 

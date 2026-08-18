@@ -26,6 +26,32 @@ const CustomerSchema = new mongoose.Schema({
         type: Number,  
         required: true,
     },
+
+    weightRecycleLLD: { 
+    type: Number, 
+    required: false 
+  },
+
+  weightPlain: { 
+    type: Number, 
+    required: false 
+  },
+
+  weightlotterene: { 
+    type: Number, 
+    required: false 
+  },
+
+  weightmasterbatch: { 
+    type: Number, 
+    required: false 
+  },
+
+  weightCalpet: { 
+    type: Number, 
+    required: false 
+  },
+
     grossWeight: {
         type: Number,
         required: true 

@@ -1,2 +1,4 @@
 node_modules
 apikey.json
+.env
+.env.local
