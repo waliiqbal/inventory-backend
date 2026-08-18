@@ -300,6 +300,48 @@ const varietyWeight = (bags, bagWeight, directWeight) =>
     ? toNumber(bags) * toNumber(bagWeight)
     : toNumber(directWeight);
 
+const isProvided = (value) => value !== undefined && value !== null && value !== "";
+
+// Sale (Customer) side par bags nahi hote — frontend seedha har variety ka weight bhejta hai.
+const SALE_VARIETY_WEIGHT_FIELDS = [
+  "weightmasterbatch",
+  "weightlotterene",
+  "weightRecycleLLD",
+  "weightPlain",
+  "weightCalpet",
+];
+
+const buildSaleVarietyWeights = (body = {}) => {
+  const weights = {};
+  let total = 0;
+  let anyProvided = false;
+
+  SALE_VARIETY_WEIGHT_FIELDS.forEach((field) => {
+    if (isProvided(body[field])) anyProvided = true;
+    weights[field] = toNumber(body[field]);
+    total += weights[field];
+  });
+
+  return { weights, total, anyProvided };
+};
+
+// weightMixing hamesha TOTAL rehta hai (mixing + saari varieties) taake stock
+// reconciliation aur grossWeight purane hisaab se hi chalte rahen.
+// Jab varieties aayi hoN to body ka weightMixing base nahi banta — wo pehle se total
+// hota hai, usme varieties dobara jorne se double count ho jata (khaas kar edit par).
+const resolveSaleWeights = (body = {}) => {
+  const { weights, total, anyProvided } = buildSaleVarietyWeights(body);
+  const weightMixing = (anyProvided ? 0 : toNumber(body.weightMixing)) + total;
+
+  // grossWeight frontend jo bheje wahi rehta hai — amount usi par bana hota hai.
+  // Sirf na bhejne par calculate karte hain.
+  const grossWeight = isProvided(body.grossWeight)
+    ? toNumber(body.grossWeight)
+    : toNumber(body.weightPure) + weightMixing;
+
+  return { varietyWeights: weights, weightMixing, grossWeight };
+};
+
 const Creatematerial = async (req, res) => {
   try {
     const {
@@ -982,14 +1024,18 @@ const createCustomer = async (req, res) => {
     }
 
 
+    // Extruding customers me mixing ka column nahi aata, uski jagah per-variety weights aate hain
+    const saleWeights = resolveSaleWeights(req.body);
+
     const newCustomer = new Customerdata({
       date,
       clientName,
       quality,
       dcNumber,
       weightPure,
-      weightMixing,
-      grossWeight,
+      weightMixing: saleWeights.weightMixing,   // mixing + saari varieties ka total
+      ...saleWeights.varietyWeights,            // har variety ka apna weight
+      grossWeight: saleWeights.grossWeight,
       rate,
       amount,
       billNo: billNo || newBill.billNo,
@@ -1037,9 +1083,18 @@ const editCustomer = async (req, res) => {
     
     //billNo tem remove 
 
+    const saleWeights = resolveSaleWeights(req.body);
+
     const updatedCustomer = await Customerdata.findByIdAndUpdate(
       _id,
-      { date, clientName, quality, dcNumber, weightPure, weightMixing, grossWeight, rate, amount, status, product, ratio, phoneNumber, additionalRate, extraRate , extraAmount, totalAmount, description },
+      {
+        date, clientName, quality, dcNumber,
+        weightPure,
+        weightMixing: saleWeights.weightMixing,   // mixing + saari varieties ka total
+        ...saleWeights.varietyWeights,            // har variety ka apna weight
+        grossWeight: saleWeights.grossWeight,
+        rate, amount, status, product, ratio, phoneNumber, additionalRate, extraRate , extraAmount, totalAmount, description
+      },
       { new: true, runValidators: true }
     );
 
