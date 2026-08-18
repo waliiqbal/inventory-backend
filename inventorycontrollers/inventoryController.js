@@ -1561,6 +1561,32 @@ const getCustomerdetails = async (req, res) => {
 };
 
 
+// Weight summary me mixing ka breakdown dikhane ke liye.
+// NOTE: weightMixing khud TOTAL hai (base mixing + saari varieties), is liye niche
+// "mixingOther" bhi nikala jata hai = Mixing - varieties. Isse rows jama kar ke
+// theek Mixing wala number banta hai, double count nahi hota.
+const SUMMARY_VARIETIES = [
+  { key: "weightmasterbatch", label: "Masterbatch", bags: "masterbatchBags" },
+  { key: "weightlotterene",   label: "Lotterene",   bags: "lottereneBags" },
+  { key: "weightRecycleLLD",  label: "Recycle LLD", bags: "RecycleLLDBags" },
+  { key: "weightPlain",       label: "Plain",       bags: "PlainBags" },
+  { key: "weightCalpet",      label: "Calpet",      bags: "CalpetBags" },
+];
+
+// $group stage me har variety ka sum add kar deta hai
+const varietySumStage = ({ withBags = false } = {}) => {
+  const stage = {};
+  SUMMARY_VARIETIES.forEach(({ key, bags }) => {
+    stage[`sum_${key}`] = { $sum: `$${key}` };
+    if (withBags) stage[`bags_${key}`] = { $sum: `$${bags}` };
+  });
+  return stage;
+};
+
+const varietySum = (row, key) => Number(row?.[`sum_${key}`] || 0);
+const varietyBags = (row, key) => Number(row?.[`bags_${key}`] || 0);
+const round2 = (value) => Number(Number(value || 0).toFixed(2));
+
 const getOpeningBalance = async (matchConditions, firstDayOfGivenMonth) => {
   const openingMatchConditions = { ...matchConditions, date: { $lt: firstDayOfGivenMonth } };
 
@@ -1573,7 +1599,8 @@ const getOpeningBalance = async (matchConditions, firstDayOfGivenMonth) => {
       $group: {
         _id: null,
         totalWeightMixing: { $sum: "$weightMixing" },
-        totalWeightPure: { $sum: "$weightPure" }
+        totalWeightPure: { $sum: "$weightPure" },
+        ...varietySumStage()
       }
     }
   ]);
@@ -1587,7 +1614,8 @@ const getOpeningBalance = async (matchConditions, firstDayOfGivenMonth) => {
       $group: {
         _id: null,
         totalWeightMixing: { $sum: "$weightMixing" },
-        totalWeightPure: { $sum: "$weightPure" }
+        totalWeightPure: { $sum: "$weightPure" },
+        ...varietySumStage()
       }
     }
   ]);
@@ -1602,7 +1630,13 @@ const getOpeningBalance = async (matchConditions, firstDayOfGivenMonth) => {
     const openingBalanceWeightMixing = purchaseWeightMixing - saleWeightMixing;
     const openingBalanceWeightPure = purchaseWeightPure - saleWeightPure;
 
-    return { openingBalanceWeightMixing, openingBalanceWeightPure };
+    // Har variety ka opening = us ki purchase - us ki sale
+    const openingVarieties = {};
+    SUMMARY_VARIETIES.forEach(({ key }) => {
+      openingVarieties[key] = varietySum(purchase[0], key) - varietySum(sale[0], key);
+    });
+
+    return { openingBalanceWeightMixing, openingBalanceWeightPure, openingVarieties };
     
     
 };
@@ -1646,7 +1680,8 @@ const getMonthlyPurchaseAndSale = async (date, userType, product, userId ) => {
         totalWeightMixing: { $sum: "$weightMixing" },
         totalWeightPure: { $sum: "$weightPure" },
         totalPureBags: { $sum: "$pureBags" },
-        totalMixingBags: { $sum: "$mixingBags"}
+        totalMixingBags: { $sum: "$mixingBags"},
+        ...varietySumStage({ withBags: true })
       }
     }
   ]);
@@ -1661,7 +1696,8 @@ const getMonthlyPurchaseAndSale = async (date, userType, product, userId ) => {
       $group: {
         _id: null,
         totalWeightMixing: { $sum: "$weightMixing" },
-        totalWeightPure: { $sum: "$weightPure" }
+        totalWeightPure: { $sum: "$weightPure" },
+        ...varietySumStage()
       }
     }
   ]);
@@ -1669,7 +1705,7 @@ const getMonthlyPurchaseAndSale = async (date, userType, product, userId ) => {
  
   
 
-  const { openingBalanceWeightMixing, openingBalanceWeightPure } = await getOpeningBalance(matchConditions, startDate);
+  const { openingBalanceWeightMixing, openingBalanceWeightPure, openingVarieties } = await getOpeningBalance(matchConditions, startDate);
   
 
     console.log("ilk", openingBalanceWeightMixing, openingBalanceWeightPure)
@@ -1692,7 +1728,42 @@ const getMonthlyPurchaseAndSale = async (date, userType, product, userId ) => {
     const closingWeightMixing = totalPurchaseWeightMixing - saleWeightMixing;
     const closingWeightPure = totalPurchaseWeightPure - saleWeightPure;
 
-    return { openingBalanceWeightMixing, openingBalanceWeightPure, purchaseWeightMixing, purchaseWeightPure, saleWeightMixing, saleWeightPure, totalPurchaseWeightMixing, totalPurchaseWeightPure, closingWeightMixing, closingWeightPure, Mixingbags, Purebags  }
+    // ---- mixing ka breakdown (dikhane ke liye) ----
+    const varieties = SUMMARY_VARIETIES.map(({ key, label, bags }) => {
+      const opening = Number(openingVarieties?.[key] || 0);
+      const varietyPurchase = varietySum(purchase[0], key);
+      const varietySale = varietySum(sale[0], key);
+      const totalPurchase = opening + varietyPurchase;
+
+      return {
+        key,
+        label,
+        openingBalance: round2(opening),
+        purchase: round2(varietyPurchase),
+        sale: round2(varietySale),
+        totalPurchase: round2(totalPurchase),
+        closing: round2(totalPurchase - varietySale),
+        purchaseBags: varietyBags(purchase[0], key),
+        bagsField: bags,
+      };
+    });
+
+    // weightMixing khud TOTAL hai (base mixing + varieties). Ye row wo hissa hai jo
+    // kisi variety me nahi gaya — is se saari rows ka jama theek Mixing ke barabar aata hai.
+    const sumOf = (field) => varieties.reduce((total, item) => total + item[field], 0);
+    varieties.push({
+      key: "mixingOther",
+      label: "Mixing (baqi)",
+      openingBalance: round2(openingBalanceWeightMixing - sumOf("openingBalance")),
+      purchase: round2(purchaseWeightMixing - sumOf("purchase")),
+      sale: round2(saleWeightMixing - sumOf("sale")),
+      totalPurchase: round2(totalPurchaseWeightMixing - sumOf("totalPurchase")),
+      closing: round2(closingWeightMixing - sumOf("closing")),
+      purchaseBags: Mixingbags,
+      bagsField: "mixingBags",
+    });
+
+    return { openingBalanceWeightMixing, openingBalanceWeightPure, purchaseWeightMixing, purchaseWeightPure, saleWeightMixing, saleWeightPure, totalPurchaseWeightMixing, totalPurchaseWeightPure, closingWeightMixing, closingWeightPure, Mixingbags, Purebags, varieties  }
 
 
 
