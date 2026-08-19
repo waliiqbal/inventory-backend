@@ -1643,33 +1643,9 @@ const getOpeningBalance = async (matchConditions, firstDayOfGivenMonth) => {
 
 
 
-const getMonthlyPurchaseAndSale = async (date, userType, product, userId ) => {
-
-  // Parse year and month as numbers
-    const [year, monthValue] = date.split("-").map(Number);
-    
-    if (!year || !monthValue || isNaN(year) || isNaN(monthValue) || monthValue > 12 || monthValue < 1) {
-      return res.status(400).json({ message: "Invalid month format. Use YYYY-MM format." });
-    }
-
-    // Construct start and end dates using UTC to ensure consistency
-    const startDate = new Date(Date.UTC(year, monthValue - 1, 1));
-    const endDate = new Date(Date.UTC(year, monthValue, 1));
-
-  // Define match conditions dynamically
-  let matchConditions = {
-    product,
-    userType,
-    date: { $gte: startDate, $lt: endDate } 
-  }
-
-  // Add userId filter only if userType is "specificCustomer"
-  if (userType === "specificCustomer") {
-    matchConditions.userId = userId;
-  }
-  console.log("okm", matchConditions)
-
-  
+// Dono weight summaries (getMaterial/getCustomer aur getCustomerdetails) ka asal hisaab.
+// Pehle ye code do jagah copy tha aur ek update hone par doosri chhoot jati thi.
+const buildWeightSummary = async (matchConditions, startDate) => {
   const purchase = await materialdata.aggregate([
     {
       $match: matchConditions
@@ -1686,8 +1662,6 @@ const getMonthlyPurchaseAndSale = async (date, userType, product, userId ) => {
     }
   ]);
 
-
-  
   const sale = await Customerdata.aggregate([
     {
       $match: matchConditions
@@ -1701,164 +1675,111 @@ const getMonthlyPurchaseAndSale = async (date, userType, product, userId ) => {
       }
     }
   ]);
-  
- 
-  
 
-  const { openingBalanceWeightMixing, openingBalanceWeightPure, openingVarieties } = await getOpeningBalance(matchConditions, startDate);
-  
+  const { openingBalanceWeightMixing, openingBalanceWeightPure, openingVarieties } =
+    await getOpeningBalance(matchConditions, startDate);
 
-    console.log("ilk", openingBalanceWeightMixing, openingBalanceWeightPure)
+  const purchaseWeightMixing = purchase[0]?.totalWeightMixing || 0;
+  const purchaseWeightPure = purchase[0]?.totalWeightPure || 0;
 
-    const purchaseWeightMixing = purchase[0]?.totalWeightMixing || 0;
-    const purchaseWeightPure = purchase[0]?.totalWeightPure || 0;
+  const Mixingbags = purchase[0]?.totalMixingBags || 0;
+  const Purebags = purchase[0]?.totalPureBags || 0;
 
-    const Mixingbags = purchase[0]?.totalMixingBags || 0;
-    const Purebags = purchase[0]?. totalPureBags || 0;
-   
+  const saleWeightMixing = sale[0]?.totalWeightMixing || 0;
+  const saleWeightPure = sale[0]?.totalWeightPure || 0;
 
+  const totalPurchaseWeightMixing = purchaseWeightMixing + openingBalanceWeightMixing;
+  const totalPurchaseWeightPure = purchaseWeightPure + openingBalanceWeightPure;
 
-    const saleWeightMixing = sale[0]?.totalWeightMixing || 0;
-    const saleWeightPure = sale[0]?.totalWeightPure || 0;
+  const closingWeightMixing = totalPurchaseWeightMixing - saleWeightMixing;
+  const closingWeightPure = totalPurchaseWeightPure - saleWeightPure;
 
-    const totalPurchaseWeightMixing = purchaseWeightMixing + openingBalanceWeightMixing;
-    const totalPurchaseWeightPure = purchaseWeightPure + openingBalanceWeightPure;
+  // ---- mixing ka breakdown (dikhane ke liye) ----
+  const varieties = SUMMARY_VARIETIES.map(({ key, label, bags }) => {
+    const opening = Number(openingVarieties?.[key] || 0);
+    const varietyPurchase = varietySum(purchase[0], key);
+    const varietySale = varietySum(sale[0], key);
+    const totalPurchase = opening + varietyPurchase;
 
-    
-    const closingWeightMixing = totalPurchaseWeightMixing - saleWeightMixing;
-    const closingWeightPure = totalPurchaseWeightPure - saleWeightPure;
+    return {
+      key,
+      label,
+      openingBalance: round2(opening),
+      purchase: round2(varietyPurchase),
+      sale: round2(varietySale),
+      totalPurchase: round2(totalPurchase),
+      closing: round2(totalPurchase - varietySale),
+      purchaseBags: varietyBags(purchase[0], key),
+      bagsField: bags,
+    };
+  });
 
-    // ---- mixing ka breakdown (dikhane ke liye) ----
-    const varieties = SUMMARY_VARIETIES.map(({ key, label, bags }) => {
-      const opening = Number(openingVarieties?.[key] || 0);
-      const varietyPurchase = varietySum(purchase[0], key);
-      const varietySale = varietySum(sale[0], key);
-      const totalPurchase = opening + varietyPurchase;
+  // weightMixing khud TOTAL hai (base mixing + varieties). Ye row wo hissa hai jo
+  // kisi variety me nahi gaya — is se saari rows ka jama theek Mixing ke barabar aata hai.
+  const sumOf = (field) => varieties.reduce((total, item) => total + item[field], 0);
+  varieties.push({
+    key: "mixingOther",
+    label: "Mixing (baqi)",
+    openingBalance: round2(openingBalanceWeightMixing - sumOf("openingBalance")),
+    purchase: round2(purchaseWeightMixing - sumOf("purchase")),
+    sale: round2(saleWeightMixing - sumOf("sale")),
+    totalPurchase: round2(totalPurchaseWeightMixing - sumOf("totalPurchase")),
+    closing: round2(closingWeightMixing - sumOf("closing")),
+    purchaseBags: Mixingbags,
+    bagsField: "mixingBags",
+  });
 
-      return {
-        key,
-        label,
-        openingBalance: round2(opening),
-        purchase: round2(varietyPurchase),
-        sale: round2(varietySale),
-        totalPurchase: round2(totalPurchase),
-        closing: round2(totalPurchase - varietySale),
-        purchaseBags: varietyBags(purchase[0], key),
-        bagsField: bags,
-      };
-    });
+  return { openingBalanceWeightMixing, openingBalanceWeightPure, purchaseWeightMixing, purchaseWeightPure, saleWeightMixing, saleWeightPure, totalPurchaseWeightMixing, totalPurchaseWeightPure, closingWeightMixing, closingWeightPure, Mixingbags, Purebags, varieties };
+};
 
-    // weightMixing khud TOTAL hai (base mixing + varieties). Ye row wo hissa hai jo
-    // kisi variety me nahi gaya — is se saari rows ka jama theek Mixing ke barabar aata hai.
-    const sumOf = (field) => varieties.reduce((total, item) => total + item[field], 0);
-    varieties.push({
-      key: "mixingOther",
-      label: "Mixing (baqi)",
-      openingBalance: round2(openingBalanceWeightMixing - sumOf("openingBalance")),
-      purchase: round2(purchaseWeightMixing - sumOf("purchase")),
-      sale: round2(saleWeightMixing - sumOf("sale")),
-      totalPurchase: round2(totalPurchaseWeightMixing - sumOf("totalPurchase")),
-      closing: round2(closingWeightMixing - sumOf("closing")),
-      purchaseBags: Mixingbags,
-      bagsField: "mixingBags",
-    });
+// month "YYYY-MM" se us mahine ki start/end date banata hai
+const getMonthRange = (date) => {
+  const [year, monthValue] = String(date).split("-").map(Number);
 
-    return { openingBalanceWeightMixing, openingBalanceWeightPure, purchaseWeightMixing, purchaseWeightPure, saleWeightMixing, saleWeightPure, totalPurchaseWeightMixing, totalPurchaseWeightPure, closingWeightMixing, closingWeightPure, Mixingbags, Purebags, varieties  }
-
-
-
-
-}
-
-const getMonthlyPurchaseAndSaleForExtrudingBilling = async (date, userType, userId ) => {
-
-  // Parse year and month as numbers
-    const [year, monthValue] = date.split("-").map(Number);
-    
-    if (!year || !monthValue || isNaN(year) || isNaN(monthValue) || monthValue > 12 || monthValue < 1) {
-      return res.status(400).json({ message: "Invalid month format. Use YYYY-MM format." });
-    }
-
-    // Construct start and end dates using UTC to ensure consistency
-    const startDate = new Date(Date.UTC(year, monthValue - 1, 1));
-    const endDate = new Date(Date.UTC(year, monthValue, 1));
-
-  // Define match conditions dynamically
-  let matchConditions = {
-    userType,
-    date: { $gte: startDate, $lt: endDate } 
+  if (!year || !monthValue || isNaN(year) || isNaN(monthValue) || monthValue > 12 || monthValue < 1) {
+    return null;
   }
+
+  return {
+    startDate: new Date(Date.UTC(year, monthValue - 1, 1)),
+    endDate: new Date(Date.UTC(year, monthValue, 1)),
+  };
+};
+
+const getMonthlyPurchaseAndSale = async (date, userType, product, userId) => {
+  const range = getMonthRange(date);
+  if (!range) return {};
+
+  const matchConditions = {
+    product,
+    userType,
+    date: { $gte: range.startDate, $lt: range.endDate }
+  };
 
   // Add userId filter only if userType is "specificCustomer"
   if (userType === "specificCustomer") {
     matchConditions.userId = userId;
   }
-  console.log("okm", matchConditions)
 
-  
-  const purchase = await materialdata.aggregate([
-    {
-      $match: matchConditions
-    },
-    {
-      $group: {
-        _id: null,
-        totalWeightMixing: { $sum: "$weightMixing" },
-        totalWeightPure: { $sum: "$weightPure" },
-        totalPureBags: { $sum: "$pureBags" },
-        totalMixingBags: { $sum: "$mixingBags"}
-      }
-    }
-  ]);
+  return buildWeightSummary(matchConditions, range.startDate);
+};
 
+// Wahi hisaab, bas product ka filter nahi lagta (extruding billing ke liye)
+const getMonthlyPurchaseAndSaleForExtrudingBilling = async (date, userType, userId) => {
+  const range = getMonthRange(date);
+  if (!range) return {};
 
-  
-  const sale = await Customerdata.aggregate([
-    {
-      $match: matchConditions
-    },
-    {
-      $group: {
-        _id: null,
-        totalWeightMixing: { $sum: "$weightMixing" },
-        totalWeightPure: { $sum: "$weightPure" }
-      }
-    }
-  ]);
-  
- 
-  
+  const matchConditions = {
+    userType,
+    date: { $gte: range.startDate, $lt: range.endDate }
+  };
 
-  const { openingBalanceWeightMixing, openingBalanceWeightPure } = await getOpeningBalance(matchConditions, startDate);
-  
+  if (userType === "specificCustomer") {
+    matchConditions.userId = userId;
+  }
 
-    console.log("ilk", openingBalanceWeightMixing, openingBalanceWeightPure)
-
-    const purchaseWeightMixing = purchase[0]?.totalWeightMixing || 0;
-    const purchaseWeightPure = purchase[0]?.totalWeightPure || 0;
-
-    const Mixingbags = purchase[0]?.totalMixingBags || 0;
-    const Purebags = purchase[0]?. totalPureBags || 0;
-   
-
-
-    const saleWeightMixing = sale[0]?.totalWeightMixing || 0;
-    const saleWeightPure = sale[0]?.totalWeightPure || 0;
-
-    const totalPurchaseWeightMixing = purchaseWeightMixing + openingBalanceWeightMixing;
-    const totalPurchaseWeightPure = purchaseWeightPure + openingBalanceWeightPure;
-
-    
-    const closingWeightMixing = totalPurchaseWeightMixing - saleWeightMixing;
-    const closingWeightPure = totalPurchaseWeightPure - saleWeightPure;
-
-    return { openingBalanceWeightMixing, openingBalanceWeightPure, purchaseWeightMixing, purchaseWeightPure, saleWeightMixing, saleWeightPure, totalPurchaseWeightMixing, totalPurchaseWeightPure, closingWeightMixing, closingWeightPure, Mixingbags, Purebags  }
-
-
-
-
-}
-
+  return buildWeightSummary(matchConditions, range.startDate);
+};
 
 const receiveSalesPayment = async (req, res) => {
   try {
