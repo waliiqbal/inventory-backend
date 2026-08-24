@@ -2,7 +2,7 @@ const cors = require("cors");
 const jwt = require('jsonwebtoken');
 const {jwtAuthMiddleware, authorizeRoles} = require('./../jwt');
 
-const {  createUser,loginUser, changePassword, forgotPassword, getCombinedData, getCustomer, getCustomerbyId, getMaterialbyId, Creatematerial,editMaterial, deleteMaterial, createCustomer,editCustomer, deleteCustomer,getMaterial, updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getReceivedFromVendorRef, getCustomerdetails, getcategoryCustomerbyId, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, getSalesLedgerSummary, walkingCustomer }
+const {  createUser,loginUser, changePassword, forgotPassword, getCombinedData, getCustomer, getCustomerbyId, getMaterialbyId, Creatematerial,editMaterial, deleteMaterial, createCustomer,editCustomer, deleteCustomer,getMaterial, updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getReceivedFromVendorRef, getCustomerdetails, getcategoryCustomerbyId, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, getSalesLedgerSummary, getPurchaseLedgerSummary, walkingCustomer }
  = require("../inventorycontrollers/inventoryController");
 
 const CustomRoutes = (http, express) => {
@@ -53,6 +53,7 @@ http.patch("/inventoryApp/EditCategoryCustomer", jwtAuthMiddleware, adminOrManag
 
 http.get("/inventoryApp/getSalesLedgerYearly", jwtAuthMiddleware, adminOrManager, getSalesLedgerYearly);
 http.get("/inventoryApp/getSalesLedgerSummary", jwtAuthMiddleware, adminOrManager, getSalesLedgerSummary);
+http.get("/inventoryApp/getPurchaseLedgerSummary", jwtAuthMiddleware, adminOrManager, getPurchaseLedgerSummary);
 
 http.post("/inventoryApp/receiveSalesPayment", jwtAuthMiddleware, adminOrManager, receiveSalesPayment);
 http.patch("/inventoryApp/editSalesPayment/:id", jwtAuthMiddleware, adminOrManager, editSalesPayment);

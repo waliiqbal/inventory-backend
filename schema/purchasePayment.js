@@ -24,6 +24,12 @@ const purchasePaymentSchema = new mongoose.Schema({
     trim: true,
   },
 
+  vendorRef: {
+    type: String,
+    required: false,
+    trim: true,
+  },
+
   phoneNumber: {
     type: String,
     required: false,
@@ -75,6 +81,7 @@ const purchasePaymentSchema = new mongoose.Schema({
 
 purchasePaymentSchema.index({ userId: 1, date: 1 });
 purchasePaymentSchema.index({ vendorName: 1, date: 1 });
+purchasePaymentSchema.index({ vendorRef: 1, date: 1 });
 purchasePaymentSchema.index({ phoneNumber: 1, date: 1 });
 purchasePaymentSchema.index({ billNo: 1 });
 purchasePaymentSchema.index({ product: 1, date: 1 });

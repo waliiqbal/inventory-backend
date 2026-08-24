@@ -25,6 +25,8 @@ const CategoryCustomerdata = mongoose.model("CategoryCustomer", CategoryCustomer
 //form sales leider
 const { salesPaymentSchema } = require("../schema/salesPayment");
 const SalesPaymentData = mongoose.model("SalesPayment", salesPaymentSchema);
+const { purchasePaymentSchema } = require("../schema/purchasePayment");
+const PurchasePaymentData = mongoose.model("PurchasePayment", purchasePaymentSchema);
 
 const escapeRegex = (text = "") =>
   String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -3493,6 +3495,509 @@ const getSalesLedgerSummary = async (req, res) => {
   }
 };
 
+const getPurchaseLedgerSummary = async (req, res) => {
+  try {
+    const {
+      year,
+      month,
+      fromMonth,
+      toMonth,
+      startMonth,
+      endMonth,
+      monthFrom,
+      monthTo,
+      from_month,
+      to_month,
+      userType = "all",
+      userId,
+      vendorRef,
+      vendorName,
+      receivedFrom,
+      userName,
+      phoneNumber,
+      billNo,
+      product,
+    } = req.query;
+
+    if (!["all", "walkingCustomer", "specificCustomer"].includes(userType)) {
+      return res.status(400).json({
+        success: false,
+        message: "userType must be all, walkingCustomer or specificCustomer",
+      });
+    }
+
+    const yearNumber = year ? Number(year) : null;
+    if (year && !Number.isInteger(yearNumber)) {
+      return res.status(400).json({
+        success: false,
+        message: "year must be a valid number",
+      });
+    }
+
+    const monthNames = {
+      january: 1, jan: 1,
+      february: 2, feb: 2,
+      march: 3, mar: 3,
+      april: 4, apr: 4,
+      may: 5,
+      june: 6, jun: 6,
+      july: 7, jul: 7,
+      august: 8, aug: 8,
+      september: 9, sep: 9, sept: 9,
+      october: 10, oct: 10,
+      november: 11, nov: 11,
+      december: 12, dec: 12,
+    };
+
+    const parseMonthYear = (value, defaultYear = null) => {
+      if (!value) return null;
+
+      const parts = String(value)
+        .trim()
+        .toLowerCase()
+        .replace(/[/_]/g, "-")
+        .replace(/\s+/g, "-")
+        .split("-")
+        .filter(Boolean);
+
+      let parsedYear = defaultYear;
+      let parsedMonth = null;
+
+      for (const part of parts) {
+        if (/^\d{4}$/.test(part)) {
+          parsedYear = Number(part);
+        } else if (!parsedMonth) {
+          parsedMonth = monthNames[part] || Number(part);
+        }
+      }
+
+      if (
+        !Number.isInteger(parsedYear) ||
+        !Number.isInteger(parsedMonth) ||
+        parsedMonth < 1 ||
+        parsedMonth > 12
+      ) {
+        return null;
+      }
+
+      return { year: parsedYear, month: parsedMonth };
+    };
+
+    const selectedFromMonth = fromMonth || startMonth || monthFrom || from_month;
+    const selectedToMonth = toMonth || endMonth || monthTo || to_month;
+    let startMonthInfo = null;
+    let endMonthInfo = null;
+
+    if (selectedFromMonth && selectedToMonth) {
+      startMonthInfo = parseMonthYear(selectedFromMonth, yearNumber);
+      endMonthInfo = parseMonthYear(selectedToMonth, yearNumber);
+    } else if (selectedFromMonth || selectedToMonth) {
+      const selectedMonth = parseMonthYear(selectedFromMonth || selectedToMonth, yearNumber);
+      if (selectedMonth) {
+        startMonthInfo = { year: selectedMonth.year, month: 1 };
+        endMonthInfo = selectedMonth;
+      }
+    } else if (month) {
+      const selectedMonth = parseMonthYear(month, yearNumber);
+      if (selectedMonth) {
+        startMonthInfo = { year: selectedMonth.year, month: 1 };
+        endMonthInfo = selectedMonth;
+      }
+    } else if (Number.isInteger(yearNumber)) {
+      startMonthInfo = { year: yearNumber, month: 1 };
+      endMonthInfo = { year: yearNumber, month: 12 };
+    }
+
+    if (!startMonthInfo || !endMonthInfo) {
+      return res.status(400).json({
+        success: false,
+        message: "year is required unless month includes year, for example month=jun-2026",
+      });
+    }
+
+    const startDate = new Date(Date.UTC(startMonthInfo.year, startMonthInfo.month - 1, 1));
+    const endDate = new Date(Date.UTC(endMonthInfo.year, endMonthInfo.month, 1));
+
+    if (startDate >= endDate) {
+      return res.status(400).json({
+        success: false,
+        message: "from month must be before or equal to to month",
+      });
+    }
+
+    const materialQuery = { date: { $gte: startDate, $lt: endDate } };
+    const paymentQuery = { date: { $gte: startDate, $lt: endDate } };
+
+    if (userType !== "all") {
+      materialQuery.userType = userType;
+      paymentQuery.userType = userType;
+    }
+
+    if (userId) {
+      materialQuery.userId = userId;
+      paymentQuery.userId = userId;
+    }
+
+    if (vendorRef) {
+      materialQuery.vendorRef = vendorRef;
+      paymentQuery.vendorRef = vendorRef;
+    }
+
+    const selectedVendorName = vendorName || receivedFrom || userName;
+    if (selectedVendorName && !userId && !vendorRef) {
+      const exactName = {
+        $regex: `^${escapeRegex(String(selectedVendorName).trim())}$`,
+        $options: "i",
+      };
+      materialQuery.receivedFrom = exactName;
+      paymentQuery.$or = [{ vendorName: exactName }, { receivedFrom: exactName }];
+    }
+
+    if (phoneNumber) {
+      materialQuery.phoneNumber = phoneNumber;
+      paymentQuery.phoneNumber = phoneNumber;
+    }
+
+    if (billNo) {
+      materialQuery.billNo = billNo;
+      paymentQuery.billNo = billNo;
+    }
+
+    if (product && product !== "all") {
+      if (!["poleythene", "hydensity"].includes(product)) {
+        return res.status(400).json({
+          success: false,
+          message: "product must be poleythene, hydensity or all",
+        });
+      }
+      materialQuery.product = product;
+      paymentQuery.product = product;
+    }
+
+    const openingMaterialQuery = { ...materialQuery, date: { $lt: startDate } };
+    const openingPaymentQuery = { ...paymentQuery, date: { $lt: startDate } };
+    const materialAmountExpression = {
+      $multiply: [
+        {
+          $ifNull: [
+            "$grossWeight",
+            {
+              $add: [
+                { $ifNull: ["$weightPure", 0] },
+                { $ifNull: ["$weightMixing", 0] },
+              ],
+            },
+          ],
+        },
+        { $ifNull: ["$rate", 0] },
+      ],
+    };
+
+    const [openingPurchases, openingPayments] = await Promise.all([
+      materialdata.aggregate([
+        { $match: openingMaterialQuery },
+        { $group: { _id: null, credit: { $sum: materialAmountExpression } } },
+      ]),
+      PurchasePaymentData.aggregate([
+        { $match: openingPaymentQuery },
+        { $group: { _id: null, debit: { $sum: "$amount" } } },
+      ]),
+    ]);
+
+    const openingCredit = Number(openingPurchases[0]?.credit || 0);
+    const openingDebit = Number(openingPayments[0]?.debit || 0);
+    const openingBalance = Number((openingCredit - openingDebit).toFixed(2));
+
+    const vendorKeyExpression = {
+      $cond: [
+        { $ne: [{ $ifNull: ["$userId", ""] }, ""] },
+        { $concat: ["user:", "$userId"] },
+        {
+          $cond: [
+            { $ne: [{ $ifNull: ["$vendorRef", ""] }, ""] },
+            { $concat: ["ref:", "$vendorRef"] },
+            {
+              $concat: [
+                "name:",
+                {
+                  $toLower: {
+                    $ifNull: ["$receivedFrom", { $ifNull: ["$vendorName", ""] }],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const monthlyPurchases = await materialdata.aggregate([
+      { $match: materialQuery },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$date" },
+            month: { $month: "$date" },
+            vendorKey: vendorKeyExpression,
+          },
+          credit: { $sum: materialAmountExpression },
+          totalWeight: {
+            $sum: {
+              $ifNull: [
+                "$grossWeight",
+                {
+                  $add: [
+                    { $ifNull: ["$weightPure", 0] },
+                    { $ifNull: ["$weightMixing", 0] },
+                  ],
+                },
+              ],
+            },
+          },
+          purchaseCount: { $sum: 1 },
+          materialIds: { $push: "$_id" },
+          billNumbers: { $addToSet: "$billNo" },
+          vendorName: { $first: "$receivedFrom" },
+          vendorRef: { $first: "$vendorRef" },
+          userType: { $first: "$userType" },
+          userId: { $first: "$userId" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          date: {
+            $dateFromParts: { year: "$_id.year", month: "$_id.month", day: 1 },
+          },
+          vendorKey: "$_id.vendorKey",
+          vendorName: { $ifNull: ["$vendorName", ""] },
+          receivedFrom: { $ifNull: ["$vendorName", ""] },
+          vendorRef: { $ifNull: ["$vendorRef", ""] },
+          userType: { $ifNull: ["$userType", ""] },
+          userId: { $ifNull: ["$userId", ""] },
+          billNumbers: 1,
+          materialIds: 1,
+          purchaseCount: 1,
+          paymentCount: { $literal: 0 },
+          totalWeight: { $round: ["$totalWeight", 2] },
+          debit: { $literal: 0 },
+          credit: { $round: ["$credit", 2] },
+        },
+      },
+    ]);
+
+    const monthlyPayments = await PurchasePaymentData.aggregate([
+      { $match: paymentQuery },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$date" },
+            month: { $month: "$date" },
+            vendorKey: vendorKeyExpression,
+          },
+          debit: { $sum: "$amount" },
+          paymentCount: { $sum: 1 },
+          paymentIds: { $push: "$_id" },
+          billNumbers: { $addToSet: "$billNo" },
+          folios: { $addToSet: "$folio" },
+          vendorName: {
+            $first: { $ifNull: ["$vendorName", "$receivedFrom"] },
+          },
+          vendorRef: { $first: "$vendorRef" },
+          userType: { $first: "$userType" },
+          userId: { $first: "$userId" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          date: {
+            $dateFromParts: { year: "$_id.year", month: "$_id.month", day: 1 },
+          },
+          vendorKey: "$_id.vendorKey",
+          vendorName: { $ifNull: ["$vendorName", ""] },
+          receivedFrom: { $ifNull: ["$vendorName", ""] },
+          vendorRef: { $ifNull: ["$vendorRef", ""] },
+          userType: { $ifNull: ["$userType", ""] },
+          userId: { $ifNull: ["$userId", ""] },
+          billNumbers: 1,
+          folios: 1,
+          paymentIds: 1,
+          paymentCount: 1,
+          purchaseCount: { $literal: 0 },
+          totalWeight: { $literal: 0 },
+          debit: { $round: ["$debit", 2] },
+          credit: { $literal: 0 },
+        },
+      },
+    ]);
+
+    const mergedEntries = new Map();
+    const appendValues = (currentValues = [], nextValues = []) =>
+      [...new Set([...currentValues, ...nextValues].filter(Boolean).map(String))];
+
+    [...monthlyPurchases, ...monthlyPayments].forEach((item) => {
+      const entryDate = new Date(item.date);
+      const mergeKey = `${entryDate.toISOString()}|${item.vendorKey}`;
+
+      if (!mergedEntries.has(mergeKey)) {
+        mergedEntries.set(mergeKey, {
+          date: entryDate,
+          description: "Monthly purchase ledger total",
+          folio: "",
+          billNo: "",
+          vendorName: item.vendorName || "",
+          receivedFrom: item.receivedFrom || item.vendorName || "",
+          vendorRef: item.vendorRef || "",
+          userType: item.userType || "",
+          userId: item.userId || "",
+          vendor: {
+            vendorName: item.vendorName || "",
+            vendorRef: item.vendorRef || "",
+            userType: item.userType || "",
+            userId: item.userId || "",
+          },
+          materialIds: [],
+          paymentIds: [],
+          purchaseCount: 0,
+          paymentCount: 0,
+          totalWeight: 0,
+          debit: 0,
+          credit: 0,
+          entryType: "summary",
+        });
+      }
+
+      const merged = mergedEntries.get(mergeKey);
+      merged.debit += Number(item.debit || 0);
+      merged.credit += Number(item.credit || 0);
+      merged.totalWeight += Number(item.totalWeight || 0);
+      merged.purchaseCount += Number(item.purchaseCount || 0);
+      merged.paymentCount += Number(item.paymentCount || 0);
+      merged.materialIds = appendValues(merged.materialIds, item.materialIds);
+      merged.paymentIds = appendValues(merged.paymentIds, item.paymentIds);
+      const bills = appendValues(merged.billNo ? merged.billNo.split(", ") : [], item.billNumbers);
+      const folios = appendValues(merged.folio ? merged.folio.split(", ") : [], item.folios);
+      merged.billNo = bills.join(", ");
+      merged.folio = folios.join(", ");
+
+      if (!merged.vendorName && item.vendorName) merged.vendorName = item.vendorName;
+      if (!merged.receivedFrom && item.receivedFrom) merged.receivedFrom = item.receivedFrom;
+      if (!merged.vendorRef && item.vendorRef) merged.vendorRef = item.vendorRef;
+      if (!merged.userType && item.userType) merged.userType = item.userType;
+      if (!merged.userId && item.userId) merged.userId = item.userId;
+      merged.vendor = {
+        vendorName: merged.vendorName,
+        vendorRef: merged.vendorRef,
+        userType: merged.userType,
+        userId: merged.userId,
+      };
+    });
+
+    const entries = Array.from(mergedEntries.values()).sort((a, b) => {
+      const dateDifference = new Date(a.date) - new Date(b.date);
+      if (dateDifference !== 0) return dateDifference;
+      return String(a.vendorName).localeCompare(String(b.vendorName));
+    });
+
+    let balance = openingBalance;
+    let totalDebit = 0;
+    let totalCredit = 0;
+    let totalWeight = 0;
+
+    const selectedVendor = selectedVendorName || "";
+    const baseEntry = {
+      folio: "",
+      billNo: billNo || "",
+      vendorName: selectedVendor,
+      receivedFrom: selectedVendor,
+      vendorRef: vendorRef || "",
+      userType,
+      userId: userId || "",
+      vendor: {
+        vendorName: selectedVendor,
+        vendorRef: vendorRef || "",
+        userType,
+        userId: userId || "",
+      },
+    };
+
+    const openingEntry = {
+      ...baseEntry,
+      date: startDate,
+      description: "Opening balance",
+      materialIds: [],
+      paymentIds: [],
+      purchaseCount: 0,
+      paymentCount: 0,
+      totalWeight: 0,
+      debit: 0,
+      credit: 0,
+      balance: openingBalance,
+      entryType: "opening",
+    };
+
+    const ledger = entries.map((item) => {
+      const debit = Number(item.debit || 0);
+      const credit = Number(item.credit || 0);
+
+      totalDebit += debit;
+      totalCredit += credit;
+      totalWeight += Number(item.totalWeight || 0);
+      balance += credit - debit;
+
+      return {
+        ...item,
+        debit: Number(debit.toFixed(2)),
+        credit: Number(credit.toFixed(2)),
+        totalWeight: Number(Number(item.totalWeight || 0).toFixed(2)),
+        balance: Number(balance.toFixed(2)),
+      };
+    });
+
+    const finalBalance = Number(balance.toFixed(2));
+    const finalEntry = {
+      ...baseEntry,
+      date: endDate,
+      description: "Final total",
+      materialIds: [],
+      paymentIds: [],
+      purchaseCount: ledger.reduce((sum, item) => sum + item.purchaseCount, 0),
+      paymentCount: ledger.reduce((sum, item) => sum + item.paymentCount, 0),
+      totalWeight: Number(totalWeight.toFixed(2)),
+      debit: Number(totalDebit.toFixed(2)),
+      credit: Number(totalCredit.toFixed(2)),
+      balance: finalBalance,
+      entryType: "total",
+    };
+
+    return res.status(200).json({
+      success: true,
+      message: "Purchase ledger fetched successfully",
+      data: [openingEntry, ...ledger, finalEntry],
+      summary: {
+        year: yearNumber || startMonthInfo.year,
+        fromMonth: `${startMonthInfo.year}-${String(startMonthInfo.month).padStart(2, "0")}`,
+        toMonth: `${endMonthInfo.year}-${String(endMonthInfo.month).padStart(2, "0")}`,
+        product: product || "all",
+        openingBalance,
+        totalWeight: Number(totalWeight.toFixed(2)),
+        totalDebit: Number(totalDebit.toFixed(2)),
+        totalCredit: Number(totalCredit.toFixed(2)),
+        closingBalance: finalBalance,
+        finalBalance,
+      },
+    });
+  } catch (error) {
+    console.error("getPurchaseLedgerSummary error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching purchase ledger",
+      error: error.message,
+    });
+  }
+};
+
 const walkingCustomer = async (req, res) => {
   try {
     const { search, page = 1, limit = 1000 } = req.query;
@@ -3576,4 +4081,4 @@ const walkingCustomer = async (req, res) => {
 
 
 
-module.exports = { createUser, getCustomerbyId, getCustomer, getMaterialbyId,getMaterial, loginUser, changePassword, forgotPassword, Creatematerial,editMaterial, deleteMaterial, createCustomer, editCustomer, deleteCustomer,updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getReceivedFromVendorRef, getCustomerdetails, getcategoryCustomerbyId, getCombinedData, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, walkingCustomer, getSalesLedgerSummary };
+module.exports = { createUser, getCustomerbyId, getCustomer, getMaterialbyId,getMaterial, loginUser, changePassword, forgotPassword, Creatematerial,editMaterial, deleteMaterial, createCustomer, editCustomer, deleteCustomer,updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getReceivedFromVendorRef, getCustomerdetails, getcategoryCustomerbyId, getCombinedData, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, walkingCustomer, getSalesLedgerSummary, getPurchaseLedgerSummary };
