@@ -132,6 +132,10 @@ const materialSchema = new mongoose.Schema({
     type: String, 
     required: true 
   },
+  vendorRef: {
+    type: String,
+    required: false
+  },
   billNo: { 
     type: String, 
     required: false 

@@ -65,6 +65,42 @@ const generateWalkingCustomerRefNo = async () => {
   throw new Error("Unable to generate unique walking customer ref_no");
 };
 
+const generateWalkingVendorRef = async () => {
+  const latestRef = await materialdata.aggregate([
+    {
+      $match: {
+        userType: "walkingCustomer",
+        vendorRef: { $regex: /^VR-\d+$/ },
+      },
+    },
+    {
+      $project: {
+        refNumber: {
+          $toInt: {
+            $arrayElemAt: [{ $split: ["$vendorRef", "-"] }, 1],
+          },
+        },
+      },
+    },
+    { $sort: { refNumber: -1 } },
+    { $limit: 1 },
+  ]);
+
+  let nextNumber = latestRef[0]?.refNumber || 0;
+
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    nextNumber += 1;
+    const vendorRef = `VR-${String(nextNumber).padStart(4, "0")}`;
+    const refExists = await materialdata.exists({ vendorRef });
+
+    if (!refExists) {
+      return vendorRef;
+    }
+  }
+
+  throw new Error("Unable to generate unique walking vendor ref");
+};
+
 
 const allowedUserRoles = ["admin", "manager", "accounts"];
 
@@ -363,6 +399,7 @@ const Creatematerial = async (req, res) => {
       quality,
       quantity,
       receivedFrom,
+      vendorRef,
       billNo,
       status,
       product,
@@ -374,6 +411,21 @@ const Creatematerial = async (req, res) => {
       rate,
 
     } = req.body;
+
+    let resolvedVendorRef = vendorRef ? String(vendorRef).trim() : "";
+
+    if (userType === "walkingCustomer" && !resolvedVendorRef) {
+      const existingVendor = await materialdata.findOne({
+        userType: "walkingCustomer",
+        receivedFrom: {
+          $regex: `^${escapeRegex(String(receivedFrom || "").trim())}$`,
+          $options: "i",
+        },
+        vendorRef: { $exists: true, $nin: [null, ""] },
+      }).sort({ createdAt: -1 }).lean();
+
+      resolvedVendorRef = existingVendor?.vendorRef || await generateWalkingVendorRef();
+    }
 
     // Calculate weights based on the given logic
     const weightPure = pureBags ? pureBags * 25 : 0; // Multiply pureBags by 25
@@ -419,6 +471,7 @@ const Creatematerial = async (req, res) => {
       quality,
       quantity,
       receivedFrom,
+      vendorRef: resolvedVendorRef || undefined,
       billNo,
       status,
       product,
@@ -477,6 +530,7 @@ const editMaterial = async (req, res) => {
       PlainBagsWeight,
       totalBags,
       receivedFrom,
+      vendorRef,
       billNo,
       status,
       product,
@@ -494,7 +548,7 @@ const editMaterial = async (req, res) => {
 
     const updateData = {
       date, quantity, quality, mixingBagsWeight,
-      receivedFrom, billNo, status, product, userId, userType, userName, rate, isNorani
+      receivedFrom, vendorRef, billNo, status, product, userId, userType, userName, rate, isNorani
     };
 
     // Recalculate tab hota hai jab body me ya to bags aayi hoN ya kisi variety ka seedha weight.
@@ -1327,6 +1381,79 @@ const getwalkingcustomer = async (req, res) => {
   } catch (error) {
     console.error("Error fetching customers:", error);
     return res.status(500).json({ message: "Server Error" });
+  }
+};
+
+const getReceivedFromVendorRef = async (req, res) => {
+  try {
+    const { userType = "walkingCustomer", search, page = 1, limit = 100 } = req.query;
+    const pageNumber = Math.max(parseInt(page, 10) || 1, 1);
+    const pageSize = Math.max(parseInt(limit, 10) || 100, 1);
+    const skip = (pageNumber - 1) * pageSize;
+
+    const matchCondition = {
+      userType,
+      receivedFrom: { $exists: true, $nin: [null, ""] },
+    };
+
+    if (search) {
+      matchCondition.receivedFrom = { $regex: search, $options: "i" };
+    }
+
+    const totalResult = await materialdata.aggregate([
+      { $match: matchCondition },
+      {
+        $group: {
+          _id: "$receivedFrom",
+        },
+      },
+      {
+        $count: "totalDocs",
+      },
+    ]);
+
+    const totalDocs = totalResult[0]?.totalDocs || 0;
+
+    const vendors = await materialdata.aggregate([
+      { $match: matchCondition },
+      { $sort: { createdAt: -1, _id: -1 } },
+      {
+        $group: {
+          _id: "$receivedFrom",
+          vendorRef: { $first: "$vendorRef" },
+          entries: { $sum: 1 },
+          latestCreatedAt: { $first: "$createdAt" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          receivedFrom: "$_id",
+          vendorRef: { $ifNull: ["$vendorRef", ""] },
+        },
+      },
+      { $sort: { entries: -1, latestCreatedAt: -1, receivedFrom: 1 } },
+      { $skip: skip },
+      { $limit: pageSize },
+    ]);
+
+    return res.status(200).json({
+      message: "Vendors fetched successfully.",
+      data: {
+        data: vendors,
+        page: {
+          page: pageNumber,
+          limit: pageSize,
+          totalDocs,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching vendors:", error);
+    return res.status(500).json({
+      message: "Internal server error.",
+      error: error.message,
+    });
   }
 };
 
@@ -3449,4 +3576,4 @@ const walkingCustomer = async (req, res) => {
 
 
 
-module.exports = { createUser, getCustomerbyId, getCustomer, getMaterialbyId,getMaterial, loginUser, changePassword, forgotPassword, Creatematerial,editMaterial, deleteMaterial, createCustomer, editCustomer, deleteCustomer,updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, getCombinedData, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, walkingCustomer, getSalesLedgerSummary };
+module.exports = { createUser, getCustomerbyId, getCustomer, getMaterialbyId,getMaterial, loginUser, changePassword, forgotPassword, Creatematerial,editMaterial, deleteMaterial, createCustomer, editCustomer, deleteCustomer,updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getReceivedFromVendorRef, getCustomerdetails, getcategoryCustomerbyId, getCombinedData, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, walkingCustomer, getSalesLedgerSummary };

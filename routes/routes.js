@@ -2,7 +2,7 @@ const cors = require("cors");
 const jwt = require('jsonwebtoken');
 const {jwtAuthMiddleware, authorizeRoles} = require('./../jwt');
 
-const {  createUser,loginUser, changePassword, forgotPassword, getCombinedData, getCustomer, getCustomerbyId, getMaterialbyId, Creatematerial,editMaterial, deleteMaterial, createCustomer,editCustomer, deleteCustomer,getMaterial, updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getCustomerdetails, getcategoryCustomerbyId, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, getSalesLedgerSummary, walkingCustomer }
+const {  createUser,loginUser, changePassword, forgotPassword, getCombinedData, getCustomer, getCustomerbyId, getMaterialbyId, Creatematerial,editMaterial, deleteMaterial, createCustomer,editCustomer, deleteCustomer,getMaterial, updateMaterialStatusById, updateCustomerStatusById, CreateCategoryCustomer, getCategoryCustomer, deleteCategoryCustomer, EditCategoryCustomer, getwalkingcustomer, getReceivedFromVendorRef, getCustomerdetails, getcategoryCustomerbyId, receiveSalesPayment, deleteSalesPayment, editSalesPayment, getSalesLedgerYearly, getSalesLedgerSummary, walkingCustomer }
  = require("../inventorycontrollers/inventoryController");
 
 const CustomRoutes = (http, express) => {
@@ -46,6 +46,7 @@ http.get("/inventoryApp/updateCustomerStatusById/:id", jwtAuthMiddleware, adminO
 http.post("/inventoryApp/CreateCategoryCustomer", jwtAuthMiddleware, adminOrManager, CreateCategoryCustomer);
 http.get("/inventoryApp/getCategoryCustomer", jwtAuthMiddleware, allRoles, getCategoryCustomer);
 http.get("/inventoryApp/getwalkingcustomer", jwtAuthMiddleware, allRoles, getwalkingcustomer);
+http.get("/inventoryApp/getReceivedFromVendorRef", jwtAuthMiddleware, allRoles, getReceivedFromVendorRef);
 http.get("/inventoryApp/getCustomerdetails", jwtAuthMiddleware, allRoles, getCustomerdetails);
 http.delete("/inventoryApp/deleteCategoryCustomer/:id", jwtAuthMiddleware, adminOrManager, deleteCategoryCustomer);
 http.patch("/inventoryApp/EditCategoryCustomer", jwtAuthMiddleware, adminOrManager, EditCategoryCustomer);
